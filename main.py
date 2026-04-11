@@ -10,16 +10,16 @@ from dotenv import load_dotenv
 
 load_dotenv()  # loads .env when running locally; Railway injects vars directly
 
-# ── intents ───────────────────────────────────────────────────────────────────
+#  intents 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# ── colours ───────────────────────────────────────────────────────────────────
+#  colours 
 C = {'a': 0x57f287, 'd': 0xed4245, 'c': 0x4f545c, 'pr': 0x5865f2, 'gold': 0xf1c40f}
 
-# ── team → role ID map ────────────────────────────────────────────────────────
+#  team → role ID map 
 TEAM_ROLES: dict[str, int] = {
     'netherlands': 1489669811637190766,
     'scotland':    1489669807770046494,
@@ -63,15 +63,21 @@ TEAM_CHOICES = [
     for k in sorted(TEAM_ROLES.keys())
 ]
 
-# ── staff role IDs ────────────────────────────────────────────────────────────
+#  staff role IDs 
 MANAGER_ROLE_ID  = 1476677221245784207   # team owner / manager
 ASST_ROLE_ID     = 1476677267856818236   # assistant team owner
 
-# ── free-agency channel ───────────────────────────────────────────────────────
+#  free-agency channel 
 FREE_AGENT_CHANNEL_ID = 1292595174232424518
 FREE_AGENT_COOLDOWN   = 5 * 60 * 60      # 5 hours in seconds
 
-# ── credentials (all from environment variables) ──────────────────────────────
+#  contract log channel 
+CONTRACT_LOG_CHANNEL_ID = 1476037356917227782
+
+#  friendlies channel 
+FRIENDLIES_CHANNEL_ID = 1477028031317934190
+
+#  credentials (all from environment variables) 
 def _require(key: str) -> str:
     val = os.environ.get(key)
     if not val:
@@ -87,14 +93,22 @@ ROVER_SECRET     = _require('ROVER_SECRET')
 
 # Firebase credentials are assembled from individual env vars so the private key
 # (which contains newlines) does not need any special escaping in Railway.
-import json
+FIREBASE_CREDS = {
+    "type":                        "service_account",
+    "project_id":                  _require('FIREBASE_PROJECT_ID'),
+    "private_key_id":              _require('FIREBASE_PRIVATE_KEY_ID'),
+    # Railway stores the key with literal \n — replace them back to real newlines
+    "private_key":                 _require('FIREBASE_PRIVATE_KEY').replace('\\n', '\n'),
+    "client_email":                _require('FIREBASE_CLIENT_EMAIL'),
+    "client_id":                   _require('FIREBASE_CLIENT_ID'),
+    "auth_uri":                    "https://accounts.google.com/o/oauth2/auth",
+    "token_uri":                   "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url":        _require('FIREBASE_CLIENT_CERT_URL'),
+    "universe_domain":             "googleapis.com",
+}
 
-_creds_raw = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-if not _creds_raw:
-    raise RuntimeError('Missing GOOGLE_APPLICATION_CREDENTIALS_JSON')
-
-FIREBASE_CREDS = json.loads(_creds_raw)
-
+#  firebase init 
 def _init_firebase():
     cred = credentials.Certificate(FIREBASE_CREDS)
     firebase_admin.initialize_app(cred, {
@@ -110,7 +124,7 @@ def _r(path: str):
 def _now() -> str:
     return datetime.utcnow().isoformat()
 
-# ── cooldown store (Firebase) for /freeagent ──────────────────────────────────
+#  cooldown store (Firebase) for /freeagent 
 def get_fa_cooldown(guild_id: int, user_id: int) -> float:
     """Returns the Unix timestamp of the last /freeagent post, or 0."""
     raw = _r(f'rfa/{guild_id}/fa_cooldowns/{user_id}').get()
@@ -119,7 +133,7 @@ def get_fa_cooldown(guild_id: int, user_id: int) -> float:
 def set_fa_cooldown(guild_id: int, user_id: int):
     _r(f'rfa/{guild_id}/fa_cooldowns/{user_id}').set(time.time())
 
-# ── Firebase: misc (bans, audit, etc.) ───────────────────────────────────────
+#  Firebase: misc (bans, audit, etc.) 
 def audit_log(guild_id: int, action: str, data: dict):
     try:
         _r(f'rfa/{guild_id}/audit_log').push({
@@ -128,7 +142,7 @@ def audit_log(guild_id: int, action: str, data: dict):
     except Exception as e:
         print(f'[audit_log] {e}')
 
-# ── role helpers ──────────────────────────────────────────────────────────────
+#  role helpers 
 def tfmt(team: str) -> str:
     flag = TEAM_FLAGS.get(team.lower(), '')
     return f"{flag} {team.title()}".strip()
@@ -175,7 +189,7 @@ def get_team_roster(guild: discord.Guild, team: str) -> list[discord.Member]:
         return []
     return [m for m in role.members if not m.bot]
 
-# ── signing state (Firebase, lightweight) ────────────────────────────────────
+#  signing state (Firebase, lightweight) 
 def signing_open(guild_id: int) -> bool:
     raw = _r(f'rfa/{guild_id}/cfg/open').get()
     return bool(raw) if raw is not None else True
@@ -190,12 +204,12 @@ def get_max_players(guild_id: int) -> int:
 def set_max_players(guild_id: int, val: int):
     _r(f'rfa/{guild_id}/cfg/maxp').set(val)
 
-# ── embed footer helper ───────────────────────────────────────────────────────
+#  embed footer helper 
 def footer(guild: discord.Guild | None) -> tuple[str, str | None]:
     icon = guild.icon.url if guild and guild.icon else None
     return 'Roblox Football Association', icon
 
-# ── roblox helpers ────────────────────────────────────────────────────────────
+#  roblox helpers 
 def roblox_headers():
     return {'x-api-key': ROBLOX_API_KEY, 'Content-Type': 'application/json'}
 
@@ -276,7 +290,7 @@ async def roblox_message(topic: str, payload: dict) -> tuple[bool, str]:
             headers=roblox_headers(), json={'message': json.dumps(payload)}) as r:
             return (True, 'OK') if r.status in (200, 204) else (False, f'HTTP {r.status}: {await r.text()}')
 
-# ── datastores ────────────────────────────────────────────────────────────────
+#  datastores 
 async def ds_set(key: str, value, store: str = None) -> tuple[bool, str]:
     async with aiohttp.ClientSession() as s:
         async with s.post(
@@ -310,7 +324,7 @@ async def ds_get(key: str, store: str = None) -> dict | None:
             params={'datastoreName': store or ROBLOX_DATASTORE, 'entryKey': key}) as r:
             return await r.json() if r.status == 200 else None
 
-# ── kohl ──────────────────────────────────────────────────────────────────────
+#  kohl 
 async def kohl_read() -> dict:
     raw = await ds_get('KSave', store=KOHL_DS)
     if not raw or not isinstance(raw, list) or len(raw) < 1:
@@ -343,7 +357,7 @@ async def kohl_get_username(user_id: int) -> str:
     info = await roblox_get_user_info(user_id)
     return info.get('name', str(user_id)) if info else str(user_id)
 
-# ── pin helpers ───────────────────────────────────────────────────────────────
+#  pin helpers 
 async def upload_image_to_roblox(image_bytes: bytes, filename: str, name: str) -> tuple[bool, str]:
     metadata = {
         "assetType": "Decal", "displayName": name,
@@ -398,30 +412,31 @@ async def grant_pin_to_player(roblox_user_id: int, asset_id: str) -> tuple[bool,
     await roblox_message('PinGranted', {'userId': roblox_user_id, 'assetId': asset_id_int})
     return True, 'OK'
 
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 #  SIGNING SYSTEM  (role-based, no roster DB)
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 
 class SignView(discord.ui.View):
     """Shown to the player in the signing channel + DM."""
 
-    def __init__(self, cid: str, guild_id: int):
+    def __init__(self, cid: str, guild_id: int, player_id: int):
         super().__init__(timeout=None)
-        self.cid      = cid
-        self.guild_id = guild_id
-        # Stable custom_ids so they survive restarts
+        self.cid       = cid
+        self.guild_id  = guild_id
+        self.player_id = player_id
         self.accept_btn.custom_id  = f'sign_a_{guild_id}_{cid}'
         self.decline_btn.custom_id = f'sign_d_{guild_id}_{cid}'
 
-    # ── internal ──────────────────────────────────────────────────────────────
+    async def interaction_check(self, it: discord.Interaction) -> bool:
+        if it.user.id != self.player_id:
+            await it.response.send_message('This contract is not addressed to you.', ephemeral=True)
+            return False
+        return True
+
     async def _resolve(self, it: discord.Interaction, accepted: bool):
-        # Validate contract still pending
         row = _r(f'rfa/{self.guild_id}/contracts/{self.cid}').get()
         if not row or row.get('status') != 'Pending':
             await it.response.send_message('This contract is no longer active.', ephemeral=True)
-            return
-        if it.user.id != row['sg_id']:
-            await it.response.send_message('This contract is not addressed to you.', ephemeral=True)
             return
 
         status = 'Signed' if accepted else 'Rejected'
@@ -429,9 +444,9 @@ class SignView(discord.ui.View):
             {'status': status, 'responded': _now()}
         )
 
-        guild  = bot.get_guild(self.guild_id)
-        col    = C['a'] if accepted else C['d']
-        team   = row['team']
+        guild = bot.get_guild(self.guild_id)
+        col   = C['a'] if accepted else C['d']
+        team  = row['team']
 
         if accepted and guild:
             team_role = get_team_role(guild, team)
@@ -443,51 +458,91 @@ class SignView(discord.ui.View):
                 except Exception as e:
                     print(f'[sign] role grant failed: {e}')
 
-        # Build updated embed
         updated = _build_contract_embed(self.cid, row, col, guild, status)
         for btn in self.children:
             btn.disabled = True
         await it.response.edit_message(embed=updated, view=self)
 
-        # Update DM
+        verb      = 'accepted' if accepted else 'declined'
+        verb_past = 'Accepted' if accepted else 'Declined'
+
+        # DM the player
+        player_dm_embed = discord.Embed(
+            color=col,
+            title=f'Contract {verb_past}',
+            description=(
+                f'You have **{verb}** the contract offer to join **{tfmt(team)}**.\n\n'
+                f'Position: {row.get("pos", "—")}\n'
+                f'Role: {row.get("tier", "—")}\n'
+                f'Contract ID: `{self.cid}`'
+            )
+        )
+        ft, fi = footer(guild)
+        player_dm_embed.set_footer(text=ft, icon_url=fi)
         if row.get('dm_msg_id'):
             try:
-                u  = await bot.fetch_user(row['sg_id'])
-                dm = await u.create_dm()
+                u      = await bot.fetch_user(row['sg_id'])
+                dm     = await u.create_dm()
                 dm_msg = await dm.fetch_message(row['dm_msg_id'])
-                content = (
-                    f'✅ You accepted the **{tfmt(team)}** contract!'
-                    if accepted else
-                    f'❌ You declined the **{tfmt(team)}** contract.'
-                )
-                await dm_msg.edit(content=content, embed=None, view=discord.ui.View())
+                await dm_msg.edit(embed=player_dm_embed, view=discord.ui.View())
             except:
                 pass
 
-        # Notify contractor
+        # DM the manager
+        manager_dm_embed = discord.Embed(
+            color=col,
+            title=f'Contract {verb_past}',
+            description=(
+                f'<@{row["sg_id"]}> has **{verb}** your contract offer for **{tfmt(team)}**.\n\n'
+                f'Position: {row.get("pos", "—")}\n'
+                f'Role: {row.get("tier", "—")}\n'
+                f'Contract ID: `{self.cid}`'
+            )
+        )
+        manager_dm_embed.set_footer(text=ft, icon_url=fi)
         try:
             contractor = await bot.fetch_user(row['ct_id'])
-            verb       = 'accepted' if accepted else 'declined'
-            ne = discord.Embed(
-                color=col,
-                title=f'Contract {"Accepted ✅" if accepted else "Declined ❌"}',
-                description=(
-                    f'<@{row["sg_id"]}> has **{verb}** your contract offer '
-                    f'for {tfmt(team)}.\n**Contract ID:** `{self.cid}`'
-                )
-            )
-            ft, fi = footer(guild)
-            ne.set_footer(text=ft, icon_url=fi)
-            await contractor.send(embed=ne)
+            await contractor.send(embed=manager_dm_embed)
         except:
             pass
 
-    @discord.ui.button(label='✅  Accept', style=discord.ButtonStyle.success,
+        # Post to contract log channel
+        try:
+            log_ch = bot.get_channel(CONTRACT_LOG_CHANNEL_ID)
+            if log_ch:
+                player_name  = row.get('sg_name', str(row['sg_id']))
+                manager_name = row.get('ct_name', str(row['ct_id']))
+                if accepted:
+                    log_text = f'__**{player_name}**__ has accepted the offer from **{manager_name}** to join **{tfmt(team)}**.'
+                else:
+                    log_text = f'__**{player_name}**__ has declined the offer from **{manager_name}** to join **{tfmt(team)}**.'
+                await log_ch.send(log_text)
+        except Exception as e:
+            print(f'[contract log] {e}')
+
+        # Update the original command channel
+        try:
+            orig_ch = bot.get_channel(row.get('ch_id'))
+            if orig_ch and row.get('msg_id'):
+                orig_msg = await orig_ch.fetch_message(row['msg_id'])
+                await orig_msg.edit(
+                    content=(
+                        f'Contract {verb_past} — '
+                        f'<@{row["sg_id"]}> has **{verb}** the offer from <@{row["ct_id"]}> '
+                        f'to join **{tfmt(team)}**.'
+                    ),
+                    embed=updated,
+                    view=self
+                )
+        except:
+            pass
+
+    @discord.ui.button(label='Accept', style=discord.ButtonStyle.success,
                        custom_id='sign_a_placeholder')
     async def accept_btn(self, it: discord.Interaction, _):
         await self._resolve(it, True)
 
-    @discord.ui.button(label='❌  Decline', style=discord.ButtonStyle.danger,
+    @discord.ui.button(label='Decline', style=discord.ButtonStyle.danger,
                        custom_id='sign_d_placeholder')
     async def decline_btn(self, it: discord.Interaction, _):
         await self._resolve(it, False)
@@ -497,28 +552,28 @@ def _build_contract_embed(
     cid: str, row: dict, color: int,
     guild: discord.Guild | None, status: str | None = None
 ) -> discord.Embed:
-    status_suffix = {
-        'Signed':    '\n\n✅ **Contract Accepted**',
-        'Rejected':  '\n\n❌ **Contract Declined**',
-        'Expired':   '\n\n⏰ **Contract Expired**',
-        'Cancelled': '\n\n🚫 **Contract Revoked**',
+    status_line = {
+        'Signed':    '\n\nContract Accepted',
+        'Rejected':  '\n\nContract Declined',
+        'Expired':   '\n\nContract Expired',
+        'Cancelled': '\n\nContract Revoked',
     }.get(status, '')
 
     desc = (
-        "This document serves as an official binding agreement between the "
-        "**Player** and the **RFA Manager**. Upon acceptance, the player "
-        "commits to representing their assigned nation with full dedication."
-        + status_suffix
+        'This document serves as an official binding agreement between the '
+        'Player and the RFA Manager. Upon acceptance, the player '
+        'commits to representing their assigned nation with full dedication.'
+        + status_line
     )
 
-    e = discord.Embed(title='⚽  Contract Offer — RFA', color=color, description=desc)
-    e.add_field(name='👤 Player',      value=f'<@{row["sg_id"]}>', inline=True)
-    e.add_field(name='📋 Team',        value=tfmt(row['team']),     inline=True)
-    e.add_field(name='🏷️ Position',    value=row.get('pos', '—'),   inline=True)
-    e.add_field(name='🎖️ Role',        value=row.get('tier', '—'),  inline=True)
-    e.add_field(name='🆔 Contract ID', value=f'`{cid}`',            inline=True)
+    e = discord.Embed(title='Contract Offer — RFA', color=color, description=desc)
+    e.add_field(name='Player',      value=f'<@{row["sg_id"]}>', inline=True)
+    e.add_field(name='Team',        value=tfmt(row['team']),     inline=True)
+    e.add_field(name='Position',    value=row.get('pos', '—'),   inline=True)
+    e.add_field(name='Role',        value=row.get('tier', '—'),  inline=True)
+    e.add_field(name='Contract ID', value=f'`{cid}`',            inline=True)
     if row.get('notes'):
-        e.add_field(name='📝 Notes', value=row['notes'], inline=False)
+        e.add_field(name='Notes', value=row['notes'], inline=False)
 
     team_role = get_team_role(guild, row['team']) if guild else None
     if team_role:
@@ -529,7 +584,7 @@ def _build_contract_embed(
     return e
 
 
-# ── contract expiry loop ──────────────────────────────────────────────────────
+#  contract expiry loop 
 @tasks.loop(seconds=30)
 async def expire_loop():
     cutoff  = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
@@ -541,46 +596,94 @@ async def expire_loop():
                 continue
             if row.get('created', '') >= cutoff:
                 continue
-            # Mark expired
             _r(f'rfa/{gid}/contracts/{cid}').update(
                 {'status': 'Expired', 'responded': _now()}
             )
             guild = bot.get_guild(gid)
             e     = _build_contract_embed(cid, row, C['c'], guild, 'Expired')
             blank = discord.ui.View()
+            team  = row.get('team', '')
+
             # Edit channel message
             if guild and row.get('ch_id') and row.get('msg_id'):
                 ch = guild.get_channel(row['ch_id'])
                 if ch:
                     try:
                         msg = await ch.fetch_message(row['msg_id'])
-                        await msg.edit(embed=e, view=blank)
+                        await msg.edit(
+                            content=(
+                                f'Contract Expired — the offer to <@{row["sg_id"]}> '
+                                f'from <@{row["ct_id"]}> to join **{tfmt(team)}** has expired.'
+                            ),
+                            embed=e, view=blank
+                        )
                     except:
                         pass
+
             # Edit DM
             if row.get('dm_msg_id'):
                 try:
-                    u  = await bot.fetch_user(row['sg_id'])
-                    dm = await u.create_dm()
+                    u      = await bot.fetch_user(row['sg_id'])
+                    dm     = await u.create_dm()
                     dm_msg = await dm.fetch_message(row['dm_msg_id'])
-                    await dm_msg.edit(embed=e, view=blank)
-                    await u.send(embed=discord.Embed(
-                        color=C['c'], title='Contract Expired ⏰',
-                        description=f'Your offer for **{tfmt(row["team"])}** expired.'
-                    ))
+                    expired_embed = discord.Embed(
+                        color=C['c'],
+                        title='Contract Expired',
+                        description=(
+                            f'Your contract offer to join **{tfmt(team)}** has expired.\n\n'
+                            f'Position: {row.get("pos", "—")}\n'
+                            f'Role: {row.get("tier", "—")}\n'
+                            f'Contract ID: `{cid}`'
+                        )
+                    )
+                    ft, fi = footer(guild)
+                    expired_embed.set_footer(text=ft, icon_url=fi)
+                    await dm_msg.edit(embed=expired_embed, view=blank)
                 except:
                     pass
 
-# ═════════════════════════════════════════════════════════════════════════════
+            # DM the manager
+            try:
+                contractor = await bot.fetch_user(row['ct_id'])
+                mgr_embed  = discord.Embed(
+                    color=C['c'],
+                    title='Contract Expired',
+                    description=(
+                        f'The contract offer to <@{row["sg_id"]}> for **{tfmt(team)}** has expired.\n\n'
+                        f'Position: {row.get("pos", "—")}\n'
+                        f'Role: {row.get("tier", "—")}\n'
+                        f'Contract ID: `{cid}`'
+                    )
+                )
+                ft, fi = footer(guild)
+                mgr_embed.set_footer(text=ft, icon_url=fi)
+                await contractor.send(embed=mgr_embed)
+            except:
+                pass
+
+            # Log
+            try:
+                log_ch = bot.get_channel(CONTRACT_LOG_CHANNEL_ID)
+                if log_ch:
+                    player_name  = row.get('sg_name', str(row['sg_id']))
+                    manager_name = row.get('ct_name', str(row['ct_id']))
+                    await log_ch.send(
+                        f'__**{player_name}**__ did not respond to the offer from **{manager_name}** '
+                        f'to join **{tfmt(team)}**. The contract has expired.'
+                    )
+            except Exception as ex:
+                print(f'[contract log expire] {ex}')
+
+# 
 #  TICKET SYSTEM
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label='Close Ticket', style=discord.ButtonStyle.danger,
-                       emoji='🔒', custom_id='close_ticket_btn')
+                       emoji='', custom_id='close_ticket_btn')
     async def close(self, it: discord.Interaction, _):
         tk = _r(f'rfa/{it.guild_id}/tickets/{it.channel_id}').get()
         if not tk:
@@ -630,7 +733,7 @@ class TicketPanelView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(label='Open Ticket', style=discord.ButtonStyle.primary,
-                       emoji='🎫', custom_id='open_ticket_btn')
+                       emoji='', custom_id='open_ticket_btn')
     async def open_ticket(self, it: discord.Interaction, _):
         tcat = _r(f'rfa/{it.guild_id}/cfg/tcat').get()
         if not tcat:
@@ -682,12 +785,12 @@ class TicketPanelView(discord.ui.View):
             f'Your ticket has been created: {ch.mention}', ephemeral=True
         )
 
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 #  COMMANDS
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 
-# ── /sign ─────────────────────────────────────────────────────────────────────
-@bot.tree.command(name='sign', description='Send a contract offer to a player')
+#  /contract 
+@bot.tree.command(name='contract', description='Send a contract offer to a player')
 @app_commands.describe(
     player='The player to offer a contract to',
     pos='Position (e.g. GK, CB, ST)',
@@ -702,19 +805,19 @@ async def sign_cmd(
     tier: str,
     notes: str = None,
 ):
-    # ── guard: only managers / assistants ──────────────────────────────────
+    #  guard: only managers / assistants 
     if not is_manager(it.user) and not it.user.guild_permissions.administrator:
         await it.response.send_message(
-            '❌ You must have the **Manager** or **Assistant Manager** role to sign players.',
+            'You must have the **Manager** or **Assistant Manager** role to sign players.',
             ephemeral=True
         )
         return
 
-    # ── auto-detect manager's team ─────────────────────────────────────────
+    #  auto-detect manager's team 
     team = get_manager_team(it.user)
     if team is None and not it.user.guild_permissions.administrator:
         await it.response.send_message(
-            '❌ You must also have your **team role** assigned to sign players. '
+            'You must also have your **team role** assigned to sign players. '
             'Contact an administrator.',
             ephemeral=True
         )
@@ -722,50 +825,50 @@ async def sign_cmd(
     if team is None:
         # Admin with no team role — ask them to use /forceadd instead
         await it.response.send_message(
-            '❌ Administrators without a team role should use `/forceadd` instead.',
+            'Administrators without a team role should use `/forceadd` instead.',
             ephemeral=True
         )
         return
 
-    # ── basic sanity ───────────────────────────────────────────────────────
+    #  basic sanity 
     if player.id == it.user.id:
-        await it.response.send_message('❌ You cannot sign yourself.', ephemeral=True)
+        await it.response.send_message('You cannot sign yourself.', ephemeral=True)
         return
     if player.bot:
-        await it.response.send_message('❌ Bots cannot be signed.', ephemeral=True)
+        await it.response.send_message('Bots cannot be signed.', ephemeral=True)
         return
 
-    # ── signing window ─────────────────────────────────────────────────────
+    #  signing window 
     if not signing_open(it.guild_id):
-        await it.response.send_message('❌ The signing window is currently **closed**.', ephemeral=True)
+        await it.response.send_message('The signing window is currently **closed**.', ephemeral=True)
         return
 
-    # ── already on a team? ─────────────────────────────────────────────────
+    #  already on a team? 
     existing = get_member_team(player)
     if existing:
         await it.response.send_message(
-            f'❌ {player.mention} is already signed to **{tfmt(existing)}**.', ephemeral=True
+            f'{player.mention} is already signed to **{tfmt(existing)}**.', ephemeral=True
         )
         return
 
-    # ── squad cap ──────────────────────────────────────────────────────────
+    #  squad cap 
     roster = get_team_roster(it.guild, team)
     if len(roster) >= get_max_players(it.guild_id):
         await it.response.send_message(
-            f'❌ **{tfmt(team)}** squad is full ({get_max_players(it.guild_id)} max).', ephemeral=True
+            f'**{tfmt(team)}** squad is full ({get_max_players(it.guild_id)} max).', ephemeral=True
         )
         return
 
-    # ── pending contract guard ─────────────────────────────────────────────
+    #  pending contract guard 
     contracts = _r(f'rfa/{it.guild_id}/contracts').get() or {}
     for cdata in contracts.values():
         if cdata.get('sg_id') == player.id and cdata.get('status') == 'Pending':
             await it.response.send_message(
-                f'❌ {player.mention} already has a **pending** contract offer.', ephemeral=True
+                f'{player.mention} already has a **pending** contract offer.', ephemeral=True
             )
             return
 
-    # ── create contract ────────────────────────────────────────────────────
+    #  create contract 
     cid = str(random.randint(10**15, 10**16 - 1))
     row = {
         'ct_id': it.user.id, 'ct_name': it.user.name,
@@ -776,12 +879,12 @@ async def sign_cmd(
         'msg_id': None, 'ch_id': it.channel_id, 'dm_msg_id': None,
     }
     e   = _build_contract_embed(cid, row, 0x2b2d31, it.guild)
-    v   = SignView(cid, it.guild_id)
+    v   = SignView(cid, it.guild_id, player.id)
 
     await it.response.send_message(
         content=(
-            f'📋 Contract offered to {player.mention} by {it.user.mention} '
-            '| ⏰ Expires in **5 minutes**'
+            f'Contract offer sent to {player.mention} by {it.user.mention} '
+            '| Expires in 5 minutes'
         ),
         embed=e, view=v
     )
@@ -793,12 +896,12 @@ async def sign_cmd(
     try:
         dm_msg = await player.send(
             content=(
-                f'🔔 You have a contract offer from **{it.guild.name}** '
+                f'You have a contract offer from **{it.guild.name}** '
                 f'to join **{tfmt(team)}**.\n'
                 f'Head to the server to accept or decline.'
             ),
             embed=e,
-            view=SignView(cid, it.guild_id),
+            view=SignView(cid, it.guild_id, player.id),
         )
         dm_msg_id = dm_msg.id
     except:
@@ -809,14 +912,14 @@ async def sign_cmd(
     bot.add_view(v)
 
 
-# ── /release ──────────────────────────────────────────────────────────────────
+#  /release 
 @bot.tree.command(name='release', description='Release a player from your squad')
 @app_commands.describe(player='The player to release')
 @app_commands.default_permissions(manage_messages=True)
 async def release_cmd(it: discord.Interaction, player: discord.Member):
     if not is_manager(it.user) and not it.user.guild_permissions.administrator:
         await it.response.send_message(
-            '❌ Only managers / assistants can release players.', ephemeral=True
+            'Only managers / assistants can release players.', ephemeral=True
         )
         return
 
@@ -825,7 +928,7 @@ async def release_cmd(it: discord.Interaction, player: discord.Member):
 
     if not player_team:
         await it.response.send_message(
-            f'❌ {player.mention} is not on any team.', ephemeral=True
+            f'{player.mention} is not on any team.', ephemeral=True
         )
         return
 
@@ -833,7 +936,7 @@ async def release_cmd(it: discord.Interaction, player: discord.Member):
     if not it.user.guild_permissions.administrator:
         if mgr_team is None or mgr_team != player_team:
             await it.response.send_message(
-                f'❌ {player.mention} is not on **your** team.', ephemeral=True
+                f'{player.mention} is not on **your** team.', ephemeral=True
             )
             return
 
@@ -842,7 +945,7 @@ async def release_cmd(it: discord.Interaction, player: discord.Member):
         try:
             await player.remove_roles(team_role, reason=f'Released from {player_team}')
         except Exception as ex:
-            await it.response.send_message(f'❌ Failed to remove role: {ex}', ephemeral=True)
+            await it.response.send_message(f'Failed to remove role: {ex}', ephemeral=True)
             return
 
     e = discord.Embed(
@@ -862,7 +965,7 @@ async def release_cmd(it: discord.Interaction, player: discord.Member):
         pass
 
 
-# ── /forceadd  (admin override) ───────────────────────────────────────────────
+#  /forceadd  (admin override) 
 @bot.tree.command(name='forceadd', description='[Admin] Force-add a player to a team')
 @app_commands.describe(player='Player to add', team='Target team')
 @app_commands.choices(team=TEAM_CHOICES)
@@ -871,17 +974,17 @@ async def forceadd_cmd(it: discord.Interaction, player: discord.Member, team: st
     existing = get_member_team(player)
     if existing:
         await it.response.send_message(
-            f'❌ {player.mention} is already on **{tfmt(existing)}**.', ephemeral=True
+            f'{player.mention} is already on **{tfmt(existing)}**.', ephemeral=True
         )
         return
     role = get_team_role(it.guild, team)
     if not role:
-        await it.response.send_message('❌ Team role not found in this server.', ephemeral=True)
+        await it.response.send_message('Team role not found in this server.', ephemeral=True)
         return
     try:
         await player.add_roles(role, reason=f'Force-added to {team} by {it.user}')
     except Exception as ex:
-        await it.response.send_message(f'❌ Failed to add role: {ex}', ephemeral=True)
+        await it.response.send_message(f'Failed to add role: {ex}', ephemeral=True)
         return
     e = discord.Embed(
         color=C['a'],
@@ -892,7 +995,7 @@ async def forceadd_cmd(it: discord.Interaction, player: discord.Member, team: st
     await it.response.send_message(embed=e)
 
 
-# ── /teamsheet ────────────────────────────────────────────────────────────────
+#  /teamsheet 
 @bot.tree.command(name='teamsheet', description="View a nation's current squad")
 @app_commands.choices(team=TEAM_CHOICES)
 async def teamsheet_cmd(it: discord.Interaction, team: str):
@@ -909,13 +1012,13 @@ async def teamsheet_cmd(it: discord.Interaction, team: str):
         if mgrs:
             lines.append('**— Staff —**')
             for m in mgrs:
-                tag = '🛡️ Manager' if MANAGER_ROLE_ID in {r.id for r in m.roles} else '🔧 Assistant'
+                tag = 'Manager' if MANAGER_ROLE_ID in {r.id for r in m.roles} else 'Assistant'
                 lines.append(f'{tag} — {m.mention}')
             lines.append('')
         if players:
             lines.append('**— Players —**')
             for m in players:
-                lines.append(f'⚽ {m.mention}')
+                lines.append(f'{m.mention}')
         e.description = '\n'.join(lines)
         ft, fi = footer(it.guild)
         e.set_footer(text=f'RFA • {len(players)} player(s)', icon_url=fi)
@@ -923,50 +1026,46 @@ async def teamsheet_cmd(it: discord.Interaction, team: str):
     await it.followup.send(embed=e)
 
 
-# ── /freeagent ────────────────────────────────────────────────────────────────
+#  /freeagent 
 @bot.tree.command(name='freeagent', description='Post your free-agent ad in the free-agency channel')
 @app_commands.describe(
-    positions='Your positions (e.g. GK, CB, LB)',
+    position='Your position (e.g. GK, CB, ST)',
+    experience='Your experience level or background (e.g. Semi-pro, 2 seasons in RFA)',
     about='Short description about yourself (optional)',
 )
-async def freeagent_cmd(it: discord.Interaction, positions: str, about: str = None):
-    # Must not already be on a team
+async def freeagent_cmd(it: discord.Interaction, position: str, experience: str, about: str = None):
     if get_member_team(it.user):
         await it.response.send_message(
-            '❌ You are already signed to a team. Release yourself first.', ephemeral=True
+            'You are already signed to a team. Release yourself first.', ephemeral=True
         )
         return
 
-    # Cooldown check
-    last = get_fa_cooldown(it.guild_id, it.user.id)
+    last      = get_fa_cooldown(it.guild_id, it.user.id)
     remaining = FREE_AGENT_COOLDOWN - (time.time() - last)
     if remaining > 0:
         hrs  = int(remaining // 3600)
         mins = int((remaining % 3600) // 60)
         await it.response.send_message(
-            f'⏳ You can post again in **{hrs}h {mins}m**.', ephemeral=True
+            f'You can post again in {hrs}h {mins}m.', ephemeral=True
         )
         return
 
     ch = it.guild.get_channel(FREE_AGENT_CHANNEL_ID)
     if not ch:
-        await it.response.send_message('❌ Free-agency channel not found.', ephemeral=True)
+        await it.response.send_message('Free-agency channel not found.', ephemeral=True)
         return
 
     set_fa_cooldown(it.guild_id, it.user.id)
 
-    # Build embed — styled after the image but more advanced
-    e = discord.Embed(color=C['gold'], title='🟡  Free Agent Available')
-    e.set_author(
-        name=it.user.display_name,
-        icon_url=it.user.display_avatar.url,
-    )
-    e.add_field(name='👤 Player',     value=it.user.mention,   inline=True)
-    e.add_field(name='🏷️ Positions',  value=positions.upper(), inline=True)
+    e = discord.Embed(color=C['gold'], title='Free Agent Available')
+    e.set_author(name=it.user.display_name, icon_url=it.user.display_avatar.url)
+    e.add_field(name='Player',     value=it.user.mention,    inline=True)
+    e.add_field(name='Position',   value=position.upper(),   inline=True)
+    e.add_field(name='Experience', value=experience,         inline=False)
     if about:
-        e.add_field(name='📝 About', value=about, inline=False)
+        e.add_field(name='About', value=about, inline=False)
     e.add_field(
-        name='📩 Interested?',
+        name='Interested?',
         value='DM this player or have your manager contact them directly.',
         inline=False
     )
@@ -975,29 +1074,16 @@ async def freeagent_cmd(it: discord.Interaction, positions: str, about: str = No
 
     await ch.send(content=it.user.mention, embed=e)
     await it.response.send_message(
-        f'✅ Your free-agent post has been sent to {ch.mention}!', ephemeral=True
+        f'Your free-agent post has been sent to {ch.mention}!', ephemeral=True
     )
 
 
-# ── /friendlies ───────────────────────────────────────────────────────────────
-@bot.tree.command(name='friendlies', description='Request a friendly match against another nation')
-@app_commands.describe(
-    opponent='The nation you want to challenge',
-    time_utc='Proposed match time (e.g. Saturday 18:00 UTC)',
-    format='Match format (e.g. 11v11, 8v8)',
-    notes='Any additional notes',
-)
-@app_commands.choices(opponent=TEAM_CHOICES)
-async def friendlies_cmd(
-    it: discord.Interaction,
-    opponent: str,
-    time_utc: str,
-    format: str = '11v11',
-    notes: str = None,
-):
+#  /friendly 
+@bot.tree.command(name='friendly', description='Request a friendly match — pings team owners and assistants')
+async def friendlies_cmd(it: discord.Interaction):
     if not is_manager(it.user) and not it.user.guild_permissions.administrator:
         await it.response.send_message(
-            '❌ Only **Managers** and **Assistant Managers** can request friendlies.',
+            'Only Managers and Assistant Managers can request friendlies.',
             ephemeral=True
         )
         return
@@ -1005,57 +1091,43 @@ async def friendlies_cmd(
     my_team = get_manager_team(it.user)
     if my_team is None and not it.user.guild_permissions.administrator:
         await it.response.send_message(
-            '❌ You do not have a team role assigned. Contact an administrator.',
+            'You do not have a team role assigned. Contact an administrator.',
             ephemeral=True
         )
         return
     if my_team is None:
         await it.response.send_message(
-            '❌ Administrators must have a team role to request friendlies.',
+            'Administrators must have a team role to request friendlies.',
             ephemeral=True
         )
         return
 
-    if my_team.lower() == opponent.lower():
-        await it.response.send_message(
-            '❌ You cannot challenge your own nation.', ephemeral=True
-        )
+    ch = bot.get_channel(FRIENDLIES_CHANNEL_ID)
+    if not ch:
+        await it.response.send_message('Friendlies channel not found.', ephemeral=True)
         return
 
-    # Ping both manager + assistant role in the channel
     mgr_mention  = f'<@&{MANAGER_ROLE_ID}>'
     asst_mention = f'<@&{ASST_ROLE_ID}>'
 
     e = discord.Embed(
         color=C['pr'],
-        title='⚽  Friendly Match Request',
+        title='Friendly Match Request',
         description=(
-            f'**{tfmt(my_team)}** has issued a challenge to **{tfmt(opponent)}**!\n'
-            f'A team representative should confirm or decline below.'
+            f'**{tfmt(my_team)}** is looking for a friendly.\n'
+            f'Contact {it.user.mention} to arrange a match.'
         )
     )
-    e.add_field(name='🏳️ Challenger', value=tfmt(my_team),   inline=True)
-    e.add_field(name='🏳️ Opponent',   value=tfmt(opponent),   inline=True)
-    e.add_field(name='⏰ Proposed Time', value=time_utc,       inline=False)
-    e.add_field(name='🎮 Format',     value=format,            inline=True)
-    e.add_field(name='📋 Requested by', value=it.user.mention, inline=True)
-    if notes:
-        e.add_field(name='📝 Notes', value=notes, inline=False)
+    e.add_field(name='Requested by', value=it.user.mention, inline=True)
+    e.add_field(name='Nation',       value=tfmt(my_team),   inline=True)
     ft, fi = footer(it.guild)
     e.set_footer(text=f'Roblox Football Association • {datetime.utcnow().strftime("%d/%m/%Y %H:%M")} UTC', icon_url=fi)
 
-    # Get opponent's team role for mention
-    opp_role = get_team_role(it.guild, opponent)
-    opp_ping = opp_role.mention if opp_role else f'**{tfmt(opponent)}**'
-
-    await it.channel.send(
-        content=f'{opp_ping} — {mgr_mention} {asst_mention}',
-        embed=e,
-    )
-    await it.response.send_message('✅ Friendly request posted!', ephemeral=True)
+    await ch.send(content=f'{mgr_mention} {asst_mention}', embed=e)
+    await it.response.send_message('Friendly request posted!', ephemeral=True)
 
 
-# ── /signing ──────────────────────────────────────────────────────────────────
+#  /signing 
 @bot.tree.command(name='signing', description='Toggle the signing window open or closed')
 @app_commands.choices(status=[
     app_commands.Choice(name='Open',   value=1),
@@ -1066,14 +1138,14 @@ async def signing_cmd(it: discord.Interaction, status: int):
     set_signing(it.guild_id, bool(status))
     e = discord.Embed(
         color=C['a'] if status else C['d'],
-        description=f'Signing window is now **{"Open ✅" if status else "Closed 🚫"}**.'
+        description=f'Signing window is now **{"Open " if status else "Closed "}**.'
     )
     ft, fi = footer(it.guild)
     e.set_footer(text=ft, icon_url=fi)
     await it.response.send_message(embed=e)
 
 
-# ── /config ───────────────────────────────────────────────────────────────────
+#  /config 
 @bot.tree.command(name='config', description='Configure bot settings')
 @app_commands.default_permissions(administrator=True)
 async def config_cmd(
@@ -1097,7 +1169,7 @@ async def config_cmd(
 
     cfg = _r(f'rfa/{it.guild_id}/cfg').get() or {}
     e = discord.Embed(title='Server Configuration', color=C['pr'])
-    e.add_field(name='Signing',           value='Open ✅' if cfg.get('open', 1) else 'Closed 🚫', inline=True)
+    e.add_field(name='Signing',           value='Open ' if cfg.get('open', 1) else 'Closed ', inline=True)
     e.add_field(name='Max Players/Squad', value=str(cfg.get('maxp', 25)),                          inline=True)
     e.add_field(name='Ticket Category',   value=f'<#{cfg["tcat"]}>' if cfg.get('tcat') else 'Not set', inline=True)
     e.add_field(name='Ticket Log',        value=f'<#{cfg["tlog"]}>' if cfg.get('tlog') else 'Not set', inline=True)
@@ -1108,7 +1180,7 @@ async def config_cmd(
     await it.response.send_message(embed=e, ephemeral=True)
 
 
-# ── /ticket ───────────────────────────────────────────────────────────────────
+#  /ticket 
 @bot.tree.command(name='ticket', description='Post the ticket panel in this channel')
 @app_commands.default_permissions(administrator=True)
 async def ticket_panel_cmd(it: discord.Interaction):
@@ -1128,7 +1200,7 @@ async def ticket_panel_cmd(it: discord.Interaction):
     await it.response.send_message('Ticket panel posted.', ephemeral=True)
 
 
-# ── /serverstatus ─────────────────────────────────────────────────────────────
+#  /serverstatus 
 @bot.tree.command(name='serverstatus', description='Check live player count and servers')
 async def serverstatus_cmd(it: discord.Interaction):
     await it.response.defer()
@@ -1152,18 +1224,18 @@ async def serverstatus_cmd(it: discord.Interaction):
     await it.followup.send(embed=e)
 
 
-# ── /rban ─────────────────────────────────────────────────────────────────────
+#  /rban 
 @bot.tree.command(name='rban', description='Ban a player from the Roblox game')
 @app_commands.default_permissions(administrator=True)
 async def rban_cmd(it: discord.Interaction, username: str, reason: str, duration_days: int = None):
     await it.response.defer()
     user_id = await roblox_get_user_id(username)
     if not user_id:
-        await it.followup.send(f'❌ Roblox user **{username}** not found.')
+        await it.followup.send(f'Roblox user **{username}** not found.')
         return
     success, msg = await roblox_ban(user_id, reason, duration_days)
     if not success:
-        await it.followup.send(f'❌ Ban failed: `{msg}`')
+        await it.followup.send(f'Ban failed: `{msg}`')
         return
     dur = f'{duration_days} day(s)' if duration_days else 'Permanent'
     _r(f'rfa/{it.guild_id}/roblox_bans/{user_id}').set({
@@ -1192,18 +1264,18 @@ async def rban_cmd(it: discord.Interaction, username: str, reason: str, duration
     await it.followup.send(embed=e)
 
 
-# ── /runban ───────────────────────────────────────────────────────────────────
+#  /runban 
 @bot.tree.command(name='runban', description='Unban a player from the Roblox game')
 @app_commands.default_permissions(administrator=True)
 async def runban_cmd(it: discord.Interaction, username: str):
     await it.response.defer()
     user_id = await roblox_get_user_id(username)
     if not user_id:
-        await it.followup.send(f'❌ Roblox user **{username}** not found.')
+        await it.followup.send(f'Roblox user **{username}** not found.')
         return
     success, msg = await roblox_unban(user_id)
     if not success:
-        await it.followup.send(f'❌ Unban failed: `{msg}`')
+        await it.followup.send(f'Unban failed: `{msg}`')
         return
     _r(f'rfa/{it.guild_id}/roblox_bans/{user_id}').delete()
     audit_log(it.guild_id, 'runban', {
@@ -1222,14 +1294,14 @@ async def runban_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e)
 
 
-# ── /rbaninfo ─────────────────────────────────────────────────────────────────
+#  /rbaninfo 
 @bot.tree.command(name='rbaninfo', description='Check ban status of a Roblox player')
 @app_commands.default_permissions(administrator=True)
 async def rbaninfo_cmd(it: discord.Interaction, username: str):
     await it.response.defer(ephemeral=True)
     user_id = await roblox_get_user_id(username)
     if not user_id:
-        await it.followup.send(f'❌ Roblox user **{username}** not found.', ephemeral=True)
+        await it.followup.send(f'Roblox user **{username}** not found.', ephemeral=True)
         return
     data        = await roblox_get_ban(user_id)
     restriction = data.get('gameJoinRestriction', {}) if data else {}
@@ -1253,7 +1325,7 @@ async def rbaninfo_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e, ephemeral=True)
 
 
-# ── /rbans ────────────────────────────────────────────────────────────────────
+#  /rbans 
 @bot.tree.command(name='rbans', description='List all currently banned Roblox players')
 @app_commands.default_permissions(administrator=True)
 async def rbans_cmd(it: discord.Interaction):
@@ -1279,7 +1351,7 @@ async def rbans_cmd(it: discord.Interaction):
     await it.followup.send(embed=e, ephemeral=True)
 
 
-# ── /announce ─────────────────────────────────────────────────────────────────
+#  /announce 
 ANNOUNCE_COLORS = [
     app_commands.Choice(name=n, value=n.lower())
     for n in ['White','Red','Green','Blue','Yellow','Orange','Purple','Cyan','Pink']
@@ -1298,7 +1370,7 @@ async def announce_cmd(it: discord.Interaction, message: str, color: str = 'whit
         topic, json.dumps({'text': message, 'sender': it.user.name, 'color': color})
     )
     if not success:
-        await it.followup.send(f'❌ Announce failed: `{msg}`')
+        await it.followup.send(f'Announce failed: `{msg}`')
         return
     audit_log(it.guild_id, 'announce', {
         'message': message, 'color': color, 'topic': topic,
@@ -1314,14 +1386,14 @@ async def announce_cmd(it: discord.Interaction, message: str, color: str = 'whit
     await it.followup.send(embed=e)
 
 
-# ── /mod ──────────────────────────────────────────────────────────────────────
+#  /mod 
 @bot.tree.command(name='mod', description='Give a player mod in a specific Roblox server')
 @app_commands.default_permissions(administrator=True)
 async def mod_cmd(it: discord.Interaction, server: str, username: str):
     await it.response.defer()
     user_id = await roblox_get_user_id(username)
     if not user_id:
-        await it.followup.send(f'❌ Roblox user **{username}** not found.')
+        await it.followup.send(f'Roblox user **{username}** not found.')
         return
     await ds_set(f'mod_{user_id}', {
         'type': 'server', 'server': server, 'username': username,
@@ -1347,14 +1419,14 @@ async def mod_cmd(it: discord.Interaction, server: str, username: str):
     await it.followup.send(embed=e)
 
 
-# ── /permmod ──────────────────────────────────────────────────────────────────
+#  /permmod 
 @bot.tree.command(name='permmod', description='Give a player permanent mod across all servers')
 @app_commands.default_permissions(administrator=True)
 async def permmod_cmd(it: discord.Interaction, username: str):
     await it.response.defer()
     user_id = await roblox_get_user_id(username)
     if not user_id:
-        await it.followup.send(f'❌ Roblox user **{username}** not found.')
+        await it.followup.send(f'Roblox user **{username}** not found.')
         return
     await ds_set(f'mod_{user_id}', {
         'type': 'permanent', 'username': username,
@@ -1379,14 +1451,14 @@ async def permmod_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e)
 
 
-# ── /unmod ────────────────────────────────────────────────────────────────────
+#  /unmod 
 @bot.tree.command(name='unmod', description='Remove mod from a Roblox player')
 @app_commands.default_permissions(administrator=True)
 async def unmod_cmd(it: discord.Interaction, username: str):
     await it.response.defer()
     user_id = await roblox_get_user_id(username)
     if not user_id:
-        await it.followup.send(f'❌ Roblox user **{username}** not found.')
+        await it.followup.send(f'Roblox user **{username}** not found.')
         return
     ds_ok, ds_msg = await ds_delete(f'mod_{user_id}')
     ds_note = ''
@@ -1394,13 +1466,13 @@ async def unmod_cmd(it: discord.Interaction, username: str):
         if '404' in ds_msg or 'NOT_FOUND' in ds_msg:
             ds_note = 'No DataStore entry — was modded in-game via Kohl'
         else:
-            await it.followup.send(f'❌ DataStore error: `{ds_msg}`')
+            await it.followup.send(f'DataStore error: `{ds_msg}`')
             return
     ms_ok, ms_msg = await roblox_message('ModSystem', {
         'action': 'revoke', 'userId': user_id, 'username': username
     })
     if not ms_ok:
-        await it.followup.send(f'❌ MessagingService failed: `{ms_msg}`')
+        await it.followup.send(f'MessagingService failed: `{ms_msg}`')
         return
     await kohl_set_power(user_id, 0)
     audit_log(it.guild_id, 'unmod', {
@@ -1423,7 +1495,7 @@ async def unmod_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e)
 
 
-# ── /modlist ──────────────────────────────────────────────────────────────────
+#  /modlist 
 @bot.tree.command(name='modlist', description='List all mods/admins from DataStore and Kohl')
 @app_commands.default_permissions(administrator=True)
 async def modlist_cmd(it: discord.Interaction):
@@ -1464,23 +1536,23 @@ async def modlist_cmd(it: discord.Interaction):
     await it.followup.send(embed=e, ephemeral=True)
 
 
-# ── /setpower ─────────────────────────────────────────────────────────────────
+#  /setpower 
 @bot.tree.command(name='setpower', description="Set a Roblox user's power level in Kohl (0-6)")
 @app_commands.default_permissions(administrator=True)
 async def setpower_cmd(it: discord.Interaction, username: str, power: int, permanent: bool = True):
     if not 0 <= power <= 6:
-        await it.response.send_message('❌ Power must be between 0 and 6.', ephemeral=True)
+        await it.response.send_message('Power must be between 0 and 6.', ephemeral=True)
         return
     await it.response.defer()
     user_id = await roblox_get_user_id(username)
     if not user_id:
-        await it.followup.send(f'❌ Roblox user **{username}** not found.')
+        await it.followup.send(f'Roblox user **{username}** not found.')
         return
     ok, msg = await kohl_set_power(
         user_id, (-power if permanent else power) if power > 0 else 0
     )
     if not ok:
-        await it.followup.send(f'❌ Failed to update KSave: `{msg}`')
+        await it.followup.send(f'Failed to update KSave: `{msg}`')
         return
     await roblox_message('ModSystem', {
         'action': 'grant' if power > 0 else 'revoke',
@@ -1506,14 +1578,14 @@ async def setpower_cmd(it: discord.Interaction, username: str, power: int, perma
     await it.followup.send(embed=e)
 
 
-# ── /whois ────────────────────────────────────────────────────────────────────
+#  /whois 
 @bot.tree.command(name='whois', description='Look up a Roblox user and their moderation history')
 @app_commands.default_permissions(administrator=True)
 async def whois_cmd(it: discord.Interaction, username: str):
     await it.response.defer()
     user_id = await roblox_get_user_id(username)
     if not user_id:
-        await it.followup.send(f'❌ Roblox user **{username}** not found.')
+        await it.followup.send(f'Roblox user **{username}** not found.')
         return
     info, ban_data, mod_ds = (
         await roblox_get_user_info(user_id),
@@ -1566,7 +1638,7 @@ async def whois_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e)
 
 
-# ── /logs ─────────────────────────────────────────────────────────────────────
+#  /logs 
 @bot.tree.command(name='logs', description='View the moderation audit log')
 @app_commands.default_permissions(administrator=True)
 async def logs_cmd(it: discord.Interaction, action: str = None, limit: int = 20):
@@ -1600,44 +1672,44 @@ async def logs_cmd(it: discord.Interaction, action: str = None, limit: int = 20)
     await it.followup.send(embed=e, ephemeral=True)
 
 
-# ── /addpin ───────────────────────────────────────────────────────────────────
+#  /addpin 
 @bot.tree.command(name='addpin', description='Upload an image as a pin and grant it to a Roblox player')
 @app_commands.default_permissions(administrator=True)
 async def addpin_cmd(it: discord.Interaction, roblox_username: str, image: discord.Attachment):
     if not image.content_type or not image.content_type.startswith('image/'):
-        await it.response.send_message('❌ Please attach a valid image (PNG, JPG, etc.)', ephemeral=True)
+        await it.response.send_message('Please attach a valid image (PNG, JPG, etc.)', ephemeral=True)
         return
     await it.response.defer()
     roblox_user_id = await roblox_get_user_id(roblox_username)
     if not roblox_user_id:
-        await it.followup.send(f'❌ Roblox user **{roblox_username}** not found.')
+        await it.followup.send(f'Roblox user **{roblox_username}** not found.')
         return
     async with aiohttp.ClientSession() as s:
         async with s.get(image.url) as r:
             if r.status != 200:
-                await it.followup.send('❌ Failed to download the image from Discord.')
+                await it.followup.send('Failed to download the image from Discord.')
                 return
             image_bytes = await r.read()
-    await it.followup.send(f'⏳ Uploading pin for **{roblox_username}**… this may take ~30 seconds.')
+    await it.followup.send(f'Uploading pin for **{roblox_username}**… this may take ~30 seconds.')
     success, result = await upload_image_to_roblox(image_bytes, image.filename, f'{roblox_username} Pin')
     if not success:
-        await it.edit_original_response(content=f'❌ Upload failed: {result}')
+        await it.edit_original_response(content=f'Upload failed: {result}')
         return
     ok, asset_id = await poll_asset_operation(result)
     if not ok:
-        await it.edit_original_response(content=f'❌ {asset_id}')
+        await it.edit_original_response(content=f'{asset_id}')
         return
     granted, grant_msg = await grant_pin_to_player(roblox_user_id, asset_id)
     if not granted:
         await it.edit_original_response(
-            content=f'⚠️ Image uploaded (ID: `{asset_id}`) but DataStore grant failed: {grant_msg}'
+            content=f' Image uploaded (ID: `{asset_id}`) but DataStore grant failed: {grant_msg}'
         )
         return
     audit_log(it.guild_id, 'addpin', {
         'roblox_username': roblox_username, 'roblox_user_id': roblox_user_id,
         'asset_id': asset_id, 'by': it.user.name, 'by_id': it.user.id
     })
-    e = discord.Embed(color=C['a'], title='✅ Pin Granted')
+    e = discord.Embed(color=C['a'], title='Pin Granted')
     e.add_field(name='Player',     value=roblox_username,              inline=True)
     e.add_field(name='Roblox ID',  value=str(roblox_user_id),          inline=True)
     e.add_field(name='Asset ID',   value=f'`{asset_id}`',              inline=True)
@@ -1649,9 +1721,9 @@ async def addpin_cmd(it: discord.Interaction, roblox_username: str, image: disco
     await it.edit_original_response(content=None, embed=e)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 #  ROVER WEB SERVER
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 async def handle_check_member(request: web.Request) -> web.Response:
     try:
         data = await request.json()
@@ -1680,9 +1752,9 @@ async def start_web_server():
     print('Web server running on port 8080')
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 #  BOT EVENTS
-# ═════════════════════════════════════════════════════════════════════════════
+# 
 @bot.event
 async def on_ready():
     print(f'Online: {bot.user}')
@@ -1692,7 +1764,7 @@ async def on_ready():
     for gid_str, gdata in all_rfa.items():
         for cid, row in (gdata.get('contracts') or {}).items():
             if row.get('status') == 'Pending':
-                bot.add_view(SignView(cid, int(gid_str)))
+                bot.add_view(SignView(cid, int(gid_str), row.get('sg_id', 0)))
 
     bot.add_view(CloseTicketView())
     bot.add_view(TicketPanelView())
