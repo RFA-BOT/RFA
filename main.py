@@ -87,22 +87,14 @@ ROVER_SECRET     = _require('ROVER_SECRET')
 
 # Firebase credentials are assembled from individual env vars so the private key
 # (which contains newlines) does not need any special escaping in Railway.
-FIREBASE_CREDS = {
-    "type":                        "service_account",
-    "project_id":                  _require('FIREBASE_PROJECT_ID'),
-    "private_key_id":              _require('FIREBASE_PRIVATE_KEY_ID'),
-    # Railway stores the key with literal \n — replace them back to real newlines
-    "private_key":                 _require('FIREBASE_PRIVATE_KEY').replace('\\n', '\n'),
-    "client_email":                _require('FIREBASE_CLIENT_EMAIL'),
-    "client_id":                   _require('FIREBASE_CLIENT_ID'),
-    "auth_uri":                    "https://accounts.google.com/o/oauth2/auth",
-    "token_uri":                   "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url":        _require('FIREBASE_CLIENT_CERT_URL'),
-    "universe_domain":             "googleapis.com",
-}
+import json
 
-# ── firebase init ─────────────────────────────────────────────────────────────
+_creds_raw = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+if not _creds_raw:
+    raise RuntimeError('Missing GOOGLE_APPLICATION_CREDENTIALS_JSON')
+
+FIREBASE_CREDS = json.loads(_creds_raw)
+
 def _init_firebase():
     cred = credentials.Certificate(FIREBASE_CREDS)
     firebase_admin.initialize_app(cred, {
