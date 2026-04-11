@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────
+#  RFA Bot — Environment Variables
+#  Copy this file to .env, fill in the values, and NEVER commit it.
+#  On Railway: paste each key/value into the Variables tab instead.
+# ─────────────────────────────────────────────────────────────
+
+# Discord
+BOT_TOKEN=YOUR_DISCORD_BOT_TOKEN_HERE
+DISCORD_GUILD_ID=1292548226737766400
+
+# Roblox
+ROBLOX_UNIVERSE=9667687631
+ROBLOX_GROUP_ID=35056215
+ROBLOX_API_KEY=YOUR_ROBLOX_OPEN_CLOUD_API_KEY_HERE
+
+# Rover web-server shared secret (must match your Luau script)
+ROVER_SECRET=rfa26
+
+# Firebase — copied from credentials.json
+FIREBASE_PROJECT_ID=rfa-base
+FIREBASE_PRIVATE_KEY_ID=87e4a157075649f14155e2e783a4074bebe193fb
+# Paste the ENTIRE private key on one line, with literal \n between lines.
+# Example: -----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----\n
+FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDCE4wZrF/rPWBqp5wkTUJQPMB2mEeku354TnuKOa6TgBQjOm0UpqWpyg4mCJe9cjGn/2W0LbBndij4Mg0UboMF3W/1U5pg6CHfegCkP/ejLMDoXJm6tpwYvhzfABzlUQVjnnPve5bISXqT/IIMBCnTm/QYi8RFaShKyLDPpklxK5jh5m1T0E3gg+L4u+l+jr73oDZEIkZwRrlQVbqGLSZpdHex9kY+L2wxOP6QYI227iMiAT7gqpNVv85hHcKHB2nqSDuvrr4k1TGpjbXun6eiJoTug1LbqQwQCTi3vQ7XzjxsFou0TZkcloCP6syWzcr8DxiUgtcO4K7oqu8VUh2VAgMBAAECggEAAnj80NynQNyAfZpOeMwQH5c+jn3Z2WusX9pZdVICWQUSJ0a/Hm4AtGOlELO3ymVFbMDynSKN4k2yyTGouAB815anWVdwTcfVNMe3PekByqamnd4vW1molLsvmum7BZUMLNRfz9OECXDiN3t0MefdI+QCMuX+S9zCfAX2nR8v3vNjdg2MbN6+TCopuLB5oi3RIWea4QSg9UcUZrYPB5QToINZEK05F96e1/lYyfDADlnilovOzjz46FRxN8FPD+Y44v5nSSweR7xid7BNXIDHSt6D9WrsOC/ZINCPnfWOZvr6GCgFypVskyrG5WD2Z5mLcdSQ+eyjjxmUAr4Xk4iXWwKBgQDn/HkoYP+8Ake6zWf9ASULQje4n5XHZy7HubSkx05qsZJE/M3KjICJVZ99FTPmoFSKCtcobcrulRKZwW0mfS8TGXAYe67Nw9s2uuWSO5/PsX98Q7C+uvlbBWITvFzgWAR95w6vq0HLz/U79lN/X21uw7W4uzR9Oarg1Wx2Yr3bGwKBgQDWKnruDXfCCuXs0OmuIam6KThetcb+DrvL9hX37CxaLps/XNc+YGOpwrJM9FSVS38Dmoh74MaUlYCch/DTl3psAdJHCrB7qQ74kcQ9P15hLfrmjZbFK5xz9UFvkkBGx+LXjGJFa/XfVH5gyj2V6YviOMZmJa9589k1dDsNXqxFDwKBgDv8Ko/oVPgWVtnUlxjynNOGccYJbb87zPrT6APbjUlFVR8Fh2jiX7IjM7QyMVNnDbUMDIplqV17qm2beE/FetCjeTq7cH3AMQS72vSu+inIKcDF+AO5cRS6FZwozpMr7y1m+4Ms8zxyL2Ur0ndTA4bqkCiOL4pZyPeN+Be8fH8VAoGAZQT6oUknARdk5vSQFTv5tD73QO1bZMEMYiO8rwnuzccIIbYoLVsIB643rkbdkuJekhOVZ2FaKgHu/Wa9+QCNlV6ykiH/pwTSc/tF5mH6obovjAqjYHO2w5ee+wKwYPKuFGA6hmZrPqG7Tup2bD0SZ23CX7JM+ChGf4lIxYCvn48CgYB8sj7Pi/hsg4nggi6jR99A274j1DOKX2aiWJWBHoMpZUuDNNzze3Y/CZL6uugPzAmkdm6z2m3/KNZn4OIzQMwOqNG5yh0PEkwF1ZTfLkRvQlLtv7TDML21OKKtTlHDojlfTL2xmae0407L4TEQEYj+EzhPd2RNA9tG0dblBDbOxg==\n-----END PRIVATE KEY-----\n
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@rfa-base.iam.gserviceaccount.com
+FIREBASE_CLIENT_ID=110260281737751447820
+FIREBASE_CLIENT_CERT_URL=https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40rfa-base.iam.gserviceaccount.com
