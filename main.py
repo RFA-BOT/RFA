@@ -10,16 +10,16 @@ from dotenv import load_dotenv
 
 load_dotenv()  # loads .env when running locally; Railway injects vars directly
 
-#  intents 
+# ── intents ──────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-#  colours 
+# ── colours ───────────────────────────────────────────────────────────────────
 C = {'a': 0x57f287, 'd': 0xed4245, 'c': 0x4f545c, 'pr': 0x5865f2, 'gold': 0xf1c40f}
 
-#  team → role ID map 
+# ── team → role ID map ────────────────────────────────────────────────────────
 TEAM_ROLES: dict[str, int] = {
     'netherlands': 1489669811637190766,
     'scotland':    1489669807770046494,
@@ -63,21 +63,21 @@ TEAM_CHOICES = [
     for k in sorted(TEAM_ROLES.keys())
 ]
 
-#  staff role IDs 
+# ── staff role IDs ────────────────────────────────────────────────────────────
 MANAGER_ROLE_ID  = 1476677221245784207   # team owner / manager
 ASST_ROLE_ID     = 1476677267856818236   # assistant team owner
 
-#  free-agency channel 
+# ── free-agency channel ───────────────────────────────────────────────────────
 FREE_AGENT_CHANNEL_ID = 1292595174232424518
 FREE_AGENT_COOLDOWN   = 5 * 60 * 60      # 5 hours in seconds
 
-#  contract log channel 
+# ── contract log channel ──────────────────────────────────────────────────────
 CONTRACT_LOG_CHANNEL_ID = 1476037356917227782
 
-#  friendlies channel 
+# ── friendlies channel ────────────────────────────────────────────────────────
 FRIENDLIES_CHANNEL_ID = 1477028031317934190
 
-#  credentials (all from environment variables) 
+# ── credentials (from environment variables) ─────────────────────────────────
 def _require(key: str) -> str:
     val = os.environ.get(key)
     if not val:
@@ -91,26 +91,27 @@ ROBLOX_API_KEY   = _require('ROBLOX_API_KEY')
 DISCORD_GUILD_ID = int(_require('DISCORD_GUILD_ID'))
 ROVER_SECRET     = _require('ROVER_SECRET')
 
-# Firebase credentials are assembled from individual env vars so the private key
-# (which contains newlines) does not need any special escaping in Railway.
-FIREBASE_CREDS = {
-    "type":                        "service_account",
-    "project_id":                  _require('FIREBASE_PROJECT_ID'),
-    "private_key_id":              _require('FIREBASE_PRIVATE_KEY_ID'),
-    # Railway stores the key with literal \n — replace them back to real newlines
-    "private_key":                 _require('FIREBASE_PRIVATE_KEY').replace('\\n', '\n'),
-    "client_email":                _require('FIREBASE_CLIENT_EMAIL'),
-    "client_id":                   _require('FIREBASE_CLIENT_ID'),
-    "auth_uri":                    "https://accounts.google.com/o/oauth2/auth",
-    "token_uri":                   "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url":        _require('FIREBASE_CLIENT_CERT_URL'),
-    "universe_domain":             "googleapis.com",
-}
-
-#  firebase init 
+# ── firebase init (uses single GOOGLE_APPLICATION_CREDENTIALS JSON env var) ───
 def _init_firebase():
-    cred = credentials.Certificate(FIREBASE_CREDS)
+    """
+    Reads Firebase credentials from the GOOGLE_APPLICATION_CREDENTIALS env var.
+    In Railway, set this to the full JSON string of your service account key file.
+    This avoids any private key newline escaping issues from splitting the JSON.
+    """
+    raw = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+    if not raw:
+        raise RuntimeError('Missing required environment variable: GOOGLE_APPLICATION_CREDENTIALS')
+
+    try:
+        cred_dict = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f'GOOGLE_APPLICATION_CREDENTIALS is not valid JSON: {e}')
+
+    # Fix newlines in private key just in case Railway escaped them
+    if 'private_key' in cred_dict:
+        cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+
+    cred = credentials.Certificate(cred_dict)
     firebase_admin.initialize_app(cred, {
         'databaseURL': 'https://rfa-base-default-rtdb.europe-west1.firebasedatabase.app/'
     })
@@ -124,7 +125,7 @@ def _r(path: str):
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-#  cooldown store (Firebase) for /freeagent 
+# ── cooldown store (Firebase) for /freeagent ─────────────────────────────────
 def get_fa_cooldown(guild_id: int, user_id: int) -> float:
     """Returns the Unix timestamp of the last /freeagent post, or 0."""
     raw = _r(f'rfa/{guild_id}/fa_cooldowns/{user_id}').get()
@@ -133,7 +134,7 @@ def get_fa_cooldown(guild_id: int, user_id: int) -> float:
 def set_fa_cooldown(guild_id: int, user_id: int):
     _r(f'rfa/{guild_id}/fa_cooldowns/{user_id}').set(time.time())
 
-#  Firebase: misc (bans, audit, etc.) 
+# ── Firebase: misc (bans, audit, etc.) ───────────────────────────────────────
 def audit_log(guild_id: int, action: str, data: dict):
     try:
         _r(f'rfa/{guild_id}/audit_log').push({
@@ -142,7 +143,7 @@ def audit_log(guild_id: int, action: str, data: dict):
     except Exception as e:
         print(f'[audit_log] {e}')
 
-#  role helpers 
+# ── role helpers ──────────────────────────────────────────────────────────────
 def tfmt(team: str) -> str:
     flag = TEAM_FLAGS.get(team.lower(), '')
     return f"{flag} {team.title()}".strip()
@@ -183,13 +184,13 @@ def get_manager_team(member: discord.Member) -> str | None:
     return None
 
 def get_team_roster(guild: discord.Guild, team: str) -> list[discord.Member]:
-    """All members that have the team role (excluding managers from player list if needed)."""
+    """All members that have the team role (excluding bots)."""
     role = get_team_role(guild, team)
     if not role:
         return []
     return [m for m in role.members if not m.bot]
 
-#  signing state (Firebase, lightweight) 
+# ── signing state (Firebase, lightweight) ────────────────────────────────────
 def signing_open(guild_id: int) -> bool:
     raw = _r(f'rfa/{guild_id}/cfg/open').get()
     return bool(raw) if raw is not None else True
@@ -204,12 +205,12 @@ def get_max_players(guild_id: int) -> int:
 def set_max_players(guild_id: int, val: int):
     _r(f'rfa/{guild_id}/cfg/maxp').set(val)
 
-#  embed footer helper 
+# ── embed footer helper ───────────────────────────────────────────────────────
 def footer(guild: discord.Guild | None) -> tuple[str, str | None]:
     icon = guild.icon.url if guild and guild.icon else None
     return 'Roblox Football Association', icon
 
-#  roblox helpers 
+# ── roblox helpers ────────────────────────────────────────────────────────────
 def roblox_headers():
     return {'x-api-key': ROBLOX_API_KEY, 'Content-Type': 'application/json'}
 
@@ -290,7 +291,7 @@ async def roblox_message(topic: str, payload: dict) -> tuple[bool, str]:
             headers=roblox_headers(), json={'message': json.dumps(payload)}) as r:
             return (True, 'OK') if r.status in (200, 204) else (False, f'HTTP {r.status}: {await r.text()}')
 
-#  datastores 
+# ── datastores ────────────────────────────────────────────────────────────────
 async def ds_set(key: str, value, store: str = None) -> tuple[bool, str]:
     async with aiohttp.ClientSession() as s:
         async with s.post(
@@ -324,7 +325,7 @@ async def ds_get(key: str, store: str = None) -> dict | None:
             params={'datastoreName': store or ROBLOX_DATASTORE, 'entryKey': key}) as r:
             return await r.json() if r.status == 200 else None
 
-#  kohl 
+# ── kohl ──────────────────────────────────────────────────────────────────────
 async def kohl_read() -> dict:
     raw = await ds_get('KSave', store=KOHL_DS)
     if not raw or not isinstance(raw, list) or len(raw) < 1:
@@ -357,7 +358,7 @@ async def kohl_get_username(user_id: int) -> str:
     info = await roblox_get_user_info(user_id)
     return info.get('name', str(user_id)) if info else str(user_id)
 
-#  pin helpers 
+# ── pin helpers ───────────────────────────────────────────────────────────────
 async def upload_image_to_roblox(image_bytes: bytes, filename: str, name: str) -> tuple[bool, str]:
     metadata = {
         "assetType": "Decal", "displayName": name,
@@ -412,9 +413,9 @@ async def grant_pin_to_player(roblox_user_id: int, asset_id: str) -> tuple[bool,
     await roblox_message('PinGranted', {'userId': roblox_user_id, 'assetId': asset_id_int})
     return True, 'OK'
 
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 #  SIGNING SYSTEM  (role-based, no roster DB)
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 
 class SignView(discord.ui.View):
     """Shown to the player in the signing channel + DM."""
@@ -520,7 +521,7 @@ class SignView(discord.ui.View):
         except Exception as e:
             print(f'[contract log] {e}')
 
-        # Update the original command channel
+        # Update the original command channel message
         try:
             orig_ch = bot.get_channel(row.get('ch_id'))
             if orig_ch and row.get('msg_id'):
@@ -584,7 +585,7 @@ def _build_contract_embed(
     return e
 
 
-#  contract expiry loop 
+# ── contract expiry loop ──────────────────────────────────────────────────────
 @tasks.loop(seconds=30)
 async def expire_loop():
     cutoff  = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
@@ -674,16 +675,16 @@ async def expire_loop():
             except Exception as ex:
                 print(f'[contract log expire] {ex}')
 
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 #  TICKET SYSTEM
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label='Close Ticket', style=discord.ButtonStyle.danger,
-                       emoji='', custom_id='close_ticket_btn')
+                       emoji='🔒', custom_id='close_ticket_btn')
     async def close(self, it: discord.Interaction, _):
         tk = _r(f'rfa/{it.guild_id}/tickets/{it.channel_id}').get()
         if not tk:
@@ -733,7 +734,7 @@ class TicketPanelView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(label='Open Ticket', style=discord.ButtonStyle.primary,
-                       emoji='', custom_id='open_ticket_btn')
+                       emoji='🎫', custom_id='open_ticket_btn')
     async def open_ticket(self, it: discord.Interaction, _):
         tcat = _r(f'rfa/{it.guild_id}/cfg/tcat').get()
         if not tcat:
@@ -785,11 +786,11 @@ class TicketPanelView(discord.ui.View):
             f'Your ticket has been created: {ch.mention}', ephemeral=True
         )
 
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 #  COMMANDS
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 
-#  /contract 
+# ── /contract ─────────────────────────────────────────────────────────────────
 @bot.tree.command(name='contract', description='Send a contract offer to a player')
 @app_commands.describe(
     player='The player to offer a contract to',
@@ -805,7 +806,7 @@ async def sign_cmd(
     tier: str,
     notes: str = None,
 ):
-    #  guard: only managers / assistants 
+    # Guard: only managers / assistants
     if not is_manager(it.user) and not it.user.guild_permissions.administrator:
         await it.response.send_message(
             'You must have the **Manager** or **Assistant Manager** role to sign players.',
@@ -813,7 +814,7 @@ async def sign_cmd(
         )
         return
 
-    #  auto-detect manager's team 
+    # Auto-detect manager's team
     team = get_manager_team(it.user)
     if team is None and not it.user.guild_permissions.administrator:
         await it.response.send_message(
@@ -823,14 +824,13 @@ async def sign_cmd(
         )
         return
     if team is None:
-        # Admin with no team role — ask them to use /forceadd instead
         await it.response.send_message(
             'Administrators without a team role should use `/forceadd` instead.',
             ephemeral=True
         )
         return
 
-    #  basic sanity 
+    # Basic sanity checks
     if player.id == it.user.id:
         await it.response.send_message('You cannot sign yourself.', ephemeral=True)
         return
@@ -838,12 +838,12 @@ async def sign_cmd(
         await it.response.send_message('Bots cannot be signed.', ephemeral=True)
         return
 
-    #  signing window 
+    # Signing window check
     if not signing_open(it.guild_id):
         await it.response.send_message('The signing window is currently **closed**.', ephemeral=True)
         return
 
-    #  already on a team? 
+    # Already on a team?
     existing = get_member_team(player)
     if existing:
         await it.response.send_message(
@@ -851,7 +851,7 @@ async def sign_cmd(
         )
         return
 
-    #  squad cap 
+    # Squad cap check
     roster = get_team_roster(it.guild, team)
     if len(roster) >= get_max_players(it.guild_id):
         await it.response.send_message(
@@ -859,7 +859,7 @@ async def sign_cmd(
         )
         return
 
-    #  pending contract guard 
+    # Pending contract guard
     contracts = _r(f'rfa/{it.guild_id}/contracts').get() or {}
     for cdata in contracts.values():
         if cdata.get('sg_id') == player.id and cdata.get('status') == 'Pending':
@@ -868,7 +868,7 @@ async def sign_cmd(
             )
             return
 
-    #  create contract 
+    # Create contract record
     cid = str(random.randint(10**15, 10**16 - 1))
     row = {
         'ct_id': it.user.id, 'ct_name': it.user.name,
@@ -912,7 +912,7 @@ async def sign_cmd(
     bot.add_view(v)
 
 
-#  /release 
+# ── /release ──────────────────────────────────────────────────────────────────
 @bot.tree.command(name='release', description='Release a player from your squad')
 @app_commands.describe(player='The player to release')
 @app_commands.default_permissions(manage_messages=True)
@@ -923,7 +923,7 @@ async def release_cmd(it: discord.Interaction, player: discord.Member):
         )
         return
 
-    mgr_team = get_manager_team(it.user)
+    mgr_team    = get_manager_team(it.user)
     player_team = get_member_team(player)
 
     if not player_team:
@@ -965,7 +965,7 @@ async def release_cmd(it: discord.Interaction, player: discord.Member):
         pass
 
 
-#  /forceadd  (admin override) 
+# ── /forceadd  (admin override) ───────────────────────────────────────────────
 @bot.tree.command(name='forceadd', description='[Admin] Force-add a player to a team')
 @app_commands.describe(player='Player to add', team='Target team')
 @app_commands.choices(team=TEAM_CHOICES)
@@ -995,7 +995,7 @@ async def forceadd_cmd(it: discord.Interaction, player: discord.Member, team: st
     await it.response.send_message(embed=e)
 
 
-#  /teamsheet 
+# ── /teamsheet ────────────────────────────────────────────────────────────────
 @bot.tree.command(name='teamsheet', description="View a nation's current squad")
 @app_commands.choices(team=TEAM_CHOICES)
 async def teamsheet_cmd(it: discord.Interaction, team: str):
@@ -1026,7 +1026,7 @@ async def teamsheet_cmd(it: discord.Interaction, team: str):
     await it.followup.send(embed=e)
 
 
-#  /freeagent 
+# ── /freeagent ────────────────────────────────────────────────────────────────
 @bot.tree.command(name='freeagent', description='Post your free-agent ad in the free-agency channel')
 @app_commands.describe(
     position='Your position (e.g. GK, CB, ST)',
@@ -1078,7 +1078,7 @@ async def freeagent_cmd(it: discord.Interaction, position: str, experience: str,
     )
 
 
-#  /friendly 
+# ── /friendly ─────────────────────────────────────────────────────────────────
 @bot.tree.command(name='friendly', description='Request a friendly match — pings team owners and assistants')
 async def friendlies_cmd(it: discord.Interaction):
     if not is_manager(it.user) and not it.user.guild_permissions.administrator:
@@ -1127,7 +1127,7 @@ async def friendlies_cmd(it: discord.Interaction):
     await it.response.send_message('Friendly request posted!', ephemeral=True)
 
 
-#  /signing 
+# ── /signing ──────────────────────────────────────────────────────────────────
 @bot.tree.command(name='signing', description='Toggle the signing window open or closed')
 @app_commands.choices(status=[
     app_commands.Choice(name='Open',   value=1),
@@ -1138,14 +1138,14 @@ async def signing_cmd(it: discord.Interaction, status: int):
     set_signing(it.guild_id, bool(status))
     e = discord.Embed(
         color=C['a'] if status else C['d'],
-        description=f'Signing window is now **{"Open " if status else "Closed "}**.'
+        description=f'Signing window is now **{"Open 🟢" if status else "Closed 🔴"}**.'
     )
     ft, fi = footer(it.guild)
     e.set_footer(text=ft, icon_url=fi)
     await it.response.send_message(embed=e)
 
 
-#  /config 
+# ── /config ───────────────────────────────────────────────────────────────────
 @bot.tree.command(name='config', description='Configure bot settings')
 @app_commands.default_permissions(administrator=True)
 async def config_cmd(
@@ -1169,7 +1169,7 @@ async def config_cmd(
 
     cfg = _r(f'rfa/{it.guild_id}/cfg').get() or {}
     e = discord.Embed(title='Server Configuration', color=C['pr'])
-    e.add_field(name='Signing',           value='Open ' if cfg.get('open', 1) else 'Closed ', inline=True)
+    e.add_field(name='Signing',           value='Open 🟢' if cfg.get('open', 1) else 'Closed 🔴', inline=True)
     e.add_field(name='Max Players/Squad', value=str(cfg.get('maxp', 25)),                          inline=True)
     e.add_field(name='Ticket Category',   value=f'<#{cfg["tcat"]}>' if cfg.get('tcat') else 'Not set', inline=True)
     e.add_field(name='Ticket Log',        value=f'<#{cfg["tlog"]}>' if cfg.get('tlog') else 'Not set', inline=True)
@@ -1180,7 +1180,7 @@ async def config_cmd(
     await it.response.send_message(embed=e, ephemeral=True)
 
 
-#  /ticket 
+# ── /ticket ───────────────────────────────────────────────────────────────────
 @bot.tree.command(name='ticket', description='Post the ticket panel in this channel')
 @app_commands.default_permissions(administrator=True)
 async def ticket_panel_cmd(it: discord.Interaction):
@@ -1200,7 +1200,7 @@ async def ticket_panel_cmd(it: discord.Interaction):
     await it.response.send_message('Ticket panel posted.', ephemeral=True)
 
 
-#  /serverstatus 
+# ── /serverstatus ─────────────────────────────────────────────────────────────
 @bot.tree.command(name='serverstatus', description='Check live player count and servers')
 async def serverstatus_cmd(it: discord.Interaction):
     await it.response.defer()
@@ -1224,7 +1224,7 @@ async def serverstatus_cmd(it: discord.Interaction):
     await it.followup.send(embed=e)
 
 
-#  /rban 
+# ── /rban ─────────────────────────────────────────────────────────────────────
 @bot.tree.command(name='rban', description='Ban a player from the Roblox game')
 @app_commands.default_permissions(administrator=True)
 async def rban_cmd(it: discord.Interaction, username: str, reason: str, duration_days: int = None):
@@ -1264,7 +1264,7 @@ async def rban_cmd(it: discord.Interaction, username: str, reason: str, duration
     await it.followup.send(embed=e)
 
 
-#  /runban 
+# ── /runban ───────────────────────────────────────────────────────────────────
 @bot.tree.command(name='runban', description='Unban a player from the Roblox game')
 @app_commands.default_permissions(administrator=True)
 async def runban_cmd(it: discord.Interaction, username: str):
@@ -1294,7 +1294,7 @@ async def runban_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e)
 
 
-#  /rbaninfo 
+# ── /rbaninfo ─────────────────────────────────────────────────────────────────
 @bot.tree.command(name='rbaninfo', description='Check ban status of a Roblox player')
 @app_commands.default_permissions(administrator=True)
 async def rbaninfo_cmd(it: discord.Interaction, username: str):
@@ -1325,7 +1325,7 @@ async def rbaninfo_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e, ephemeral=True)
 
 
-#  /rbans 
+# ── /rbans ────────────────────────────────────────────────────────────────────
 @bot.tree.command(name='rbans', description='List all currently banned Roblox players')
 @app_commands.default_permissions(administrator=True)
 async def rbans_cmd(it: discord.Interaction):
@@ -1351,7 +1351,7 @@ async def rbans_cmd(it: discord.Interaction):
     await it.followup.send(embed=e, ephemeral=True)
 
 
-#  /announce 
+# ── /announce ─────────────────────────────────────────────────────────────────
 ANNOUNCE_COLORS = [
     app_commands.Choice(name=n, value=n.lower())
     for n in ['White','Red','Green','Blue','Yellow','Orange','Purple','Cyan','Pink']
@@ -1386,7 +1386,7 @@ async def announce_cmd(it: discord.Interaction, message: str, color: str = 'whit
     await it.followup.send(embed=e)
 
 
-#  /mod 
+# ── /mod ──────────────────────────────────────────────────────────────────────
 @bot.tree.command(name='mod', description='Give a player mod in a specific Roblox server')
 @app_commands.default_permissions(administrator=True)
 async def mod_cmd(it: discord.Interaction, server: str, username: str):
@@ -1419,7 +1419,7 @@ async def mod_cmd(it: discord.Interaction, server: str, username: str):
     await it.followup.send(embed=e)
 
 
-#  /permmod 
+# ── /permmod ──────────────────────────────────────────────────────────────────
 @bot.tree.command(name='permmod', description='Give a player permanent mod across all servers')
 @app_commands.default_permissions(administrator=True)
 async def permmod_cmd(it: discord.Interaction, username: str):
@@ -1451,7 +1451,7 @@ async def permmod_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e)
 
 
-#  /unmod 
+# ── /unmod ────────────────────────────────────────────────────────────────────
 @bot.tree.command(name='unmod', description='Remove mod from a Roblox player')
 @app_commands.default_permissions(administrator=True)
 async def unmod_cmd(it: discord.Interaction, username: str):
@@ -1495,7 +1495,7 @@ async def unmod_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e)
 
 
-#  /modlist 
+# ── /modlist ──────────────────────────────────────────────────────────────────
 @bot.tree.command(name='modlist', description='List all mods/admins from DataStore and Kohl')
 @app_commands.default_permissions(administrator=True)
 async def modlist_cmd(it: discord.Interaction):
@@ -1536,7 +1536,7 @@ async def modlist_cmd(it: discord.Interaction):
     await it.followup.send(embed=e, ephemeral=True)
 
 
-#  /setpower 
+# ── /setpower ─────────────────────────────────────────────────────────────────
 @bot.tree.command(name='setpower', description="Set a Roblox user's power level in Kohl (0-6)")
 @app_commands.default_permissions(administrator=True)
 async def setpower_cmd(it: discord.Interaction, username: str, power: int, permanent: bool = True):
@@ -1578,7 +1578,7 @@ async def setpower_cmd(it: discord.Interaction, username: str, power: int, perma
     await it.followup.send(embed=e)
 
 
-#  /whois 
+# ── /whois ────────────────────────────────────────────────────────────────────
 @bot.tree.command(name='whois', description='Look up a Roblox user and their moderation history')
 @app_commands.default_permissions(administrator=True)
 async def whois_cmd(it: discord.Interaction, username: str):
@@ -1638,7 +1638,7 @@ async def whois_cmd(it: discord.Interaction, username: str):
     await it.followup.send(embed=e)
 
 
-#  /logs 
+# ── /logs ─────────────────────────────────────────────────────────────────────
 @bot.tree.command(name='logs', description='View the moderation audit log')
 @app_commands.default_permissions(administrator=True)
 async def logs_cmd(it: discord.Interaction, action: str = None, limit: int = 20):
@@ -1672,7 +1672,7 @@ async def logs_cmd(it: discord.Interaction, action: str = None, limit: int = 20)
     await it.followup.send(embed=e, ephemeral=True)
 
 
-#  /addpin 
+# ── /addpin ───────────────────────────────────────────────────────────────────
 @bot.tree.command(name='addpin', description='Upload an image as a pin and grant it to a Roblox player')
 @app_commands.default_permissions(administrator=True)
 async def addpin_cmd(it: discord.Interaction, roblox_username: str, image: discord.Attachment):
@@ -1702,7 +1702,7 @@ async def addpin_cmd(it: discord.Interaction, roblox_username: str, image: disco
     granted, grant_msg = await grant_pin_to_player(roblox_user_id, asset_id)
     if not granted:
         await it.edit_original_response(
-            content=f' Image uploaded (ID: `{asset_id}`) but DataStore grant failed: {grant_msg}'
+            content=f'✅ Image uploaded (ID: `{asset_id}`) but DataStore grant failed: {grant_msg}'
         )
         return
     audit_log(it.guild_id, 'addpin', {
@@ -1721,9 +1721,9 @@ async def addpin_cmd(it: discord.Interaction, roblox_username: str, image: disco
     await it.edit_original_response(content=None, embed=e)
 
 
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 #  ROVER WEB SERVER
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 async def handle_check_member(request: web.Request) -> web.Response:
     try:
         data = await request.json()
@@ -1752,19 +1752,22 @@ async def start_web_server():
     print('Web server running on port 8080')
 
 
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 #  BOT EVENTS
-# 
+# ══════════════════════════════════════════════════════════════════════════════
 @bot.event
 async def on_ready():
     print(f'Online: {bot.user}')
 
     # Re-register persistent views for contracts still pending
-    all_rfa = _r('rfa').get() or {}
-    for gid_str, gdata in all_rfa.items():
-        for cid, row in (gdata.get('contracts') or {}).items():
-            if row.get('status') == 'Pending':
-                bot.add_view(SignView(cid, int(gid_str), row.get('sg_id', 0)))
+    try:
+        all_rfa = _r('rfa').get() or {}
+        for gid_str, gdata in all_rfa.items():
+            for cid, row in (gdata.get('contracts') or {}).items():
+                if row.get('status') == 'Pending':
+                    bot.add_view(SignView(cid, int(gid_str), row.get('sg_id', 0)))
+    except Exception as e:
+        print(f'[on_ready] Failed to restore contract views: {e}')
 
     bot.add_view(CloseTicketView())
     bot.add_view(TicketPanelView())
