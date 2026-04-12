@@ -1760,26 +1760,14 @@ async def on_ready():
     print(f'Online: {bot.user}')
 
     # Re-register persistent views for contracts still pending
-    try:
-        all_rfa = _r('rfa').get() or {}
-        for gid_str, gdata in all_rfa.items():
-            for cid, row in (gdata.get('contracts') or {}).items():
-                if row.get('status') == 'Pending':
-                    bot.add_view(SignView(cid, int(gid_str), row.get('sg_id', 0)))
-    except Exception as e:
-        print(f'[on_ready] Failed to restore contract views d: {e}')
-
-    bot.add_view(CloseTicketView())
-    bot.add_view(TicketPanelView())
-
-    if not expire_loop.is_running():
-        expire_loop.start()
-
-    await start_web_server()
-
-    try:
+try:
         guild = discord.Object(id=DISCORD_GUILD_ID)
-        bot.tree.copy_global_to(guild=guild)
+
+        # Clear lingering global commands to prevent duplicates
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+
+        # Sync only to the specific guild
         synced = await bot.tree.sync(guild=guild)
         print(f'Synced {len(synced)} commands to guild')
     except Exception as ex:
