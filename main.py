@@ -1767,7 +1767,7 @@ async def on_ready():
                 if row.get('status') == 'Pending':
                     bot.add_view(SignView(cid, int(gid_str), row.get('sg_id', 0)))
     except Exception as e:
-        print(f'[on_ready] Failed to restore contract views: {e}')
+        print(f'[on_ready] Failed to restore contract views d: {e}')
 
     bot.add_view(CloseTicketView())
     bot.add_view(TicketPanelView())
