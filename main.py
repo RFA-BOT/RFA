@@ -2,7 +2,7 @@ import discord, os, random, io, asyncio, json, time
 import aiohttp
 from discord.ext import commands, tasks
 from discord import app_commands
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import firebase_admin
 from firebase_admin import credentials, db as fdb
 from aiohttp import web
@@ -122,7 +122,7 @@ def _r(path: str):
     return fdb.reference(path)
 
 def _now() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 #  cooldown store (Firebase) for /freeagent 
 def get_fa_cooldown(guild_id: int, user_id: int) -> float:
@@ -587,7 +587,7 @@ def _build_contract_embed(
 #  contract expiry loop 
 @tasks.loop(seconds=30)
 async def expire_loop():
-    cutoff  = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+    cutoff  = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
     all_rfa = _r('rfa').get() or {}
     for gid_str, gdata in all_rfa.items():
         gid = int(gid_str)
@@ -1070,7 +1070,7 @@ async def freeagent_cmd(it: discord.Interaction, position: str, experience: str,
         inline=False
     )
     ft, fi = footer(it.guild)
-    e.set_footer(text=f'Roblox Football Association • {datetime.utcnow().strftime("%d/%m/%Y %H:%M")} UTC', icon_url=fi)
+    e.set_footer(text=f'Roblox Football Association • {datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M")} UTC', icon_url=fi)
 
     await ch.send(content=it.user.mention, embed=e)
     await it.response.send_message(
@@ -1121,7 +1121,7 @@ async def friendlies_cmd(it: discord.Interaction):
     e.add_field(name='Requested by', value=it.user.mention, inline=True)
     e.add_field(name='Nation',       value=tfmt(my_team),   inline=True)
     ft, fi = footer(it.guild)
-    e.set_footer(text=f'Roblox Football Association • {datetime.utcnow().strftime("%d/%m/%Y %H:%M")} UTC', icon_url=fi)
+    e.set_footer(text=f'Roblox Football Association • {datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M")} UTC', icon_url=fi)
 
     await ch.send(content=f'{mgr_mention} {asst_mention}', embed=e)
     await it.response.send_message('Friendly request posted!', ephemeral=True)
@@ -1775,8 +1775,10 @@ async def on_ready():
     await start_web_server()
 
     try:
-        synced = await bot.tree.sync()
-        print(f'Synced {len(synced)} commands')
+        guild = discord.Object(id=DISCORD_GUILD_ID)
+        bot.tree.copy_global_to(guild=guild)
+        synced = await bot.tree.sync(guild=guild)
+        print(f'Synced {len(synced)} commands to guild')
     except Exception as ex:
         print(f'Sync error: {ex}')
 
