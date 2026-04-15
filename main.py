@@ -47,6 +47,7 @@ TEAM_CHOICES = [app_commands.Choice(name=k.title(), value=k) for k in sorted(TEA
 
 MANAGER_ROLE_ID = 1476677221245784207
 ASST_ROLE_ID = 1476677267856818236
+STAFF_ROLE_ID = 1475565079767290040
 FREE_AGENT_CHANNEL_ID = 1292595174232424518
 FREE_AGENT_COOLDOWN = 5 * 60 * 60
 CONTRACT_LOG_CHANNEL_ID = 1476037356917227782
@@ -108,6 +109,10 @@ def get_member_team(member):
 def is_manager(member):
     ids = {r.id for r in member.roles}
     return MANAGER_ROLE_ID in ids or ASST_ROLE_ID in ids
+
+def is_staff(member):
+    ids = {r.id for r in member.roles}
+    return STAFF_ROLE_ID in ids or member.guild_permissions.administrator
 
 def is_manager_of(member, team):
     if member.guild_permissions.administrator: return True
@@ -490,74 +495,225 @@ async def expire_loop():
             except Exception as ex: print(f'[contract log expire] {ex}')
 
 
-class CloseTicketView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+# ── Ticket: Close Reason Modal ────────────────────────────────────────────────
 
-    @discord.ui.button(label='Close Ticket', style=discord.ButtonStyle.danger, emoji='🔒', custom_id='close_ticket_btn')
-    async def close(self, it, _):
-        tk = _r(f'rfa/{it.guild_id}/tickets/{it.channel_id}').get()
-        if not tk:
-            await it.response.send_message('Not a ticket channel.', ephemeral=True); return
-        if not (it.user.guild_permissions.manage_channels or it.user.id == tk['uid']):
-            await it.response.send_message('No permission.', ephemeral=True); return
+class CloseReasonModal(discord.ui.Modal, title='Close Ticket'):
+    reason = discord.ui.TextInput(
+        label='Reason for closing',
+        style=discord.TextStyle.paragraph,
+        placeholder='Explain why this ticket is being closed…',
+        required=True,
+        max_length=500,
+    )
+
+    def __init__(self, channel_id: int, guild_id: int):
+        super().__init__()
+        self.channel_id = channel_id
+        self.guild_id = guild_id
+
+    async def on_submit(self, it: discord.Interaction):
+        close_reason = self.reason.value
         await it.response.defer()
+
+        tk = _r(f'rfa/{self.guild_id}/tickets/{self.channel_id}').get()
+        if not tk:
+            await it.followup.send('Not a ticket channel.', ephemeral=True)
+            return
+
+        channel = it.guild.get_channel(self.channel_id)
+        if not channel:
+            await it.followup.send('Channel not found.', ephemeral=True)
+            return
+
+        # Gather transcript
         lines = []
-        async for m in it.channel.history(limit=500, oldest_first=True):
+        async for m in channel.history(limit=500, oldest_first=True):
             lines.append(f'[{m.created_at.strftime("%Y-%m-%d %H:%M:%S")}] {m.author.display_name}: {m.content or "[embed/attachment]"}')
-        log_ch_id = _r(f'rfa/{it.guild_id}/cfg/tlog').get()
+
+        transcript_bytes = '\n'.join(lines).encode()
+        transcript_file_staff = discord.File(io.BytesIO(transcript_bytes), filename=f'transcript-{channel.name}.txt')
+        transcript_file_user = discord.File(io.BytesIO(transcript_bytes), filename=f'transcript-{channel.name}.txt')
+
+        ft, fi = footer(it.guild)
+
+        # Send transcript + close reason to log channel
+        log_ch_id = _r(f'rfa/{self.guild_id}/cfg/tlog').get()
         if log_ch_id:
             lch = it.guild.get_channel(int(log_ch_id))
             if lch:
                 le = discord.Embed(color=C['c'], description=f'Ticket closed by {it.user.mention}')
                 le.add_field(name='Opened by', value=f'<@{tk["uid"]}>', inline=True)
-                le.add_field(name='Channel', value=it.channel.name, inline=True)
+                le.add_field(name='Channel', value=channel.name, inline=True)
                 le.add_field(name='Opened', value=tk['created'][:10], inline=True)
-                ft, fi = footer(it.guild)
+                le.add_field(name='Close Reason', value=close_reason, inline=False)
                 le.set_footer(text=ft, icon_url=fi)
-                await lch.send(embed=le, file=discord.File(io.BytesIO('\n'.join(lines).encode()), filename=f'transcript-{it.channel.name}.txt'))
-        _r(f'rfa/{it.guild_id}/tickets/{it.channel_id}').update({'status':'closed','closed':_now()})
-        await it.followup.send('Closing in 3 seconds…')
-        await asyncio.sleep(3)
-        await it.channel.delete()
+                await lch.send(embed=le, file=transcript_file_staff)
 
+        # DM the ticket creator with the close reason + transcript
+        try:
+            creator = await bot.fetch_user(tk['uid'])
+            dm_embed = discord.Embed(
+                color=C['c'],
+                title='Your Ticket Has Been Closed',
+                description=(
+                    f'Your ticket in **{it.guild.name}** has been closed by {it.user.mention}.\n\n'
+                    f'**Reason:**\n{close_reason}\n\n'
+                    f'A transcript of the conversation is attached below.'
+                )
+            )
+            dm_embed.set_footer(text=ft, icon_url=fi)
+            await creator.send(embed=dm_embed, file=transcript_file_user)
+        except Exception as e:
+            print(f'[ticket close dm] {e}')
+
+        # Update Firebase and delete channel
+        _r(f'rfa/{self.guild_id}/tickets/{self.channel_id}').update({
+            'status': 'closed',
+            'closed': _now(),
+            'close_reason': close_reason,
+            'closed_by': it.user.id,
+        })
+
+        await channel.send('Closing in 3 seconds…')
+        await asyncio.sleep(3)
+        await channel.delete()
+
+
+# ── Ticket: Close Button View ─────────────────────────────────────────────────
+
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label='Close Ticket', style=discord.ButtonStyle.danger, emoji='🔒', custom_id='close_ticket_btn')
+    async def close(self, it: discord.Interaction, _):
+        tk = _r(f'rfa/{it.guild_id}/tickets/{it.channel_id}').get()
+        if not tk:
+            await it.response.send_message('Not a ticket channel.', ephemeral=True)
+            return
+
+        # Allow staff, admins, or the ticket creator to close
+        can_close = (
+            it.user.guild_permissions.manage_channels
+            or it.user.guild_permissions.administrator
+            or is_staff(it.user)
+            or it.user.id == tk['uid']
+        )
+        if not can_close:
+            await it.response.send_message('You do not have permission to close this ticket.', ephemeral=True)
+            return
+
+        # Open the close-reason modal
+        modal = CloseReasonModal(channel_id=it.channel_id, guild_id=it.guild_id)
+        await it.response.send_modal(modal)
+
+
+# ── Ticket: Reason Select Modal (opened after reason chosen) ──────────────────
+
+class TicketReasonSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label='Team Management', value='Team Management', emoji='⚽', description='Issues related to team rosters, signings, or releases'),
+            discord.SelectOption(label='Support',         value='Support',         emoji='🛠️', description='General help or bot-related support'),
+            discord.SelectOption(label='Report',          value='Report',          emoji='🚨', description='Report a player, manager, or issue'),
+            discord.SelectOption(label='Other',           value='Other',           emoji='📋', description='Anything else not listed above'),
+        ]
+        super().__init__(
+            placeholder='Select a reason for opening this ticket…',
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id='ticket_reason_select',
+        )
+
+    async def callback(self, it: discord.Interaction):
+        reason = self.values[0]
+        guild_id = it.guild_id
+
+        tcat = _r(f'rfa/{guild_id}/cfg/tcat').get()
+        if not tcat:
+            await it.response.send_message('Ticket system not configured.', ephemeral=True)
+            return
+
+        # Check for existing open ticket
+        tickets = _r(f'rfa/{guild_id}/tickets').get() or {}
+        for ch_id, tk in tickets.items():
+            if tk.get('uid') == it.user.id and tk.get('status') == 'open':
+                ch = it.guild.get_channel(int(ch_id))
+                if ch:
+                    await it.response.send_message(f'You already have an open ticket: {ch.mention}', ephemeral=True)
+                    return
+
+        cat = it.guild.get_channel(int(tcat))
+        if not cat:
+            await it.response.send_message('Ticket category not found.', ephemeral=True)
+            return
+
+        mgr_rid = _r(f'rfa/{guild_id}/cfg/mgr_role').get()
+        amgr_rid = _r(f'rfa/{guild_id}/cfg/amgr_role').get()
+        staff_role = it.guild.get_role(STAFF_ROLE_ID)
+
+        ow = {
+            it.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            it.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
+            it.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
+        }
+        # Grant staff role access
+        if staff_role:
+            ow[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        for rid in [mgr_rid, amgr_rid]:
+            if rid:
+                ro = it.guild.get_role(int(rid))
+                if ro: ow[ro] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
+        ch = await it.guild.create_text_channel(
+            f'ticket-{it.user.name}', category=cat, overwrites=ow
+        )
+
+        _r(f'rfa/{guild_id}/tickets/{ch.id}').set({
+            'uid': it.user.id,
+            'status': 'open',
+            'created': _now(),
+            'closed': None,
+            'reason': reason,
+        })
+
+        ft, fi = footer(it.guild)
+        e = discord.Embed(
+            color=C['pr'],
+            title=f'Ticket — {reason}',
+            description=(
+                f'Welcome {it.user.mention}! A member of staff will be with you shortly.\n\n'
+                f'**Reason:** {reason}\n\n'
+                f'Please describe your issue in as much detail as possible.'
+            )
+        )
+        e.set_footer(text=ft, icon_url=fi)
+        await ch.send(embed=e, view=CloseTicketView())
+        await it.response.send_message(f'Your ticket has been created: {ch.mention}', ephemeral=True)
+
+
+# ── Ticket: Panel View (shows the reason dropdown) ────────────────────────────
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label='Open Ticket', style=discord.ButtonStyle.primary, emoji='🎫', custom_id='open_ticket_btn')
-    async def open_ticket(self, it, _):
+    async def open_ticket(self, it: discord.Interaction, _):
         tcat = _r(f'rfa/{it.guild_id}/cfg/tcat').get()
         if not tcat:
-            await it.response.send_message('Ticket system not configured.', ephemeral=True); return
-        tickets = _r(f'rfa/{it.guild_id}/tickets').get() or {}
-        for ch_id, tk in tickets.items():
-            if tk.get('uid') == it.user.id and tk.get('status') == 'open':
-                ch = it.guild.get_channel(int(ch_id))
-                if ch:
-                    await it.response.send_message(f'You already have an open ticket: {ch.mention}', ephemeral=True); return
-        cat = it.guild.get_channel(int(tcat))
-        if not cat:
-            await it.response.send_message('Ticket category not found.', ephemeral=True); return
-        mgr_rid = _r(f'rfa/{it.guild_id}/cfg/mgr_role').get()
-        amgr_rid = _r(f'rfa/{it.guild_id}/cfg/amgr_role').get()
-        ow = {
-            it.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            it.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
-            it.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
-        }
-        for rid in [mgr_rid, amgr_rid]:
-            if rid:
-                ro = it.guild.get_role(int(rid))
-                if ro: ow[ro] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
-        ch = await it.guild.create_text_channel(f'ticket-{it.user.name}', category=cat, overwrites=ow)
-        _r(f'rfa/{it.guild_id}/tickets/{ch.id}').set({'uid':it.user.id,'status':'open','created':_now(),'closed':None})
-        e = discord.Embed(color=C['pr'], description=f'Welcome {it.user.mention}! Please describe your issue and a staff member will assist you shortly.')
-        ft, fi = footer(it.guild)
-        e.set_footer(text=ft, icon_url=fi)
-        await ch.send(embed=e, view=CloseTicketView())
-        await it.response.send_message(f'Your ticket has been created: {ch.mention}', ephemeral=True)
+            await it.response.send_message('Ticket system not configured.', ephemeral=True)
+            return
+
+        # Show reason selector as an ephemeral message with a Select menu
+        view = discord.ui.View(timeout=120)
+        view.add_item(TicketReasonSelect())
+        await it.response.send_message(
+            '**Select a reason for your ticket:**',
+            view=view,
+            ephemeral=True,
+        )
 
 
 @bot.tree.command(name='contract', description='Send a contract offer to a player', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
