@@ -820,17 +820,26 @@ async def freeagent_cmd(it, position: str, experience: str, about: str = None):
 @bot.tree.command(name='friendly', description='Request a friendly match', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(manage_messages=True)
 async def friendlies_cmd(it):
-    if not is_manager(it.user) and not it.user.guild_permissions.administrator:
-        await it.response.send_message('Only Managers and Assistant Managers can request friendlies.', ephemeral=True); return
-    role = it.guild.get_role(FRIENDLY_PING_ROLE_ID)
-    if not role:
-        await it.response.send_message('Friendly ping role not found. Contact an administrator.', ephemeral=True); return
-    my_team = get_manager_team(it.user)
-    if my_team is None:
-        await it.response.send_message('You do not have a team role assigned. Contact an administrator.', ephemeral=True); return
+    friendly_role = it.guild.get_role(FRIENDLY_PING_ROLE_ID)
+    if not friendly_role:
+        await it.response.send_message('Friendly ping role not found. Contact an administrator.', ephemeral=True)
+        return
+
+    # Check if user has the friendly role OR is a manager/assistant
+    has_friendly_role = friendly_role in it.user.roles
+    is_manager_or_assistant = is_manager(it.user) or it.user.guild_permissions.administrator
+
+    if not (has_friendly_role or is_manager_or_assistant):
+        await it.response.send_message('You need the designated friendly role or be a Manager/Assistant Manager to request friendlies.', ephemeral=True)
+        return
+
+    my_team = get_manager_team(it.user) if is_manager_or_assistant else None
+
     ch = bot.get_channel(FRIENDLIES_CHANNEL_ID)
     if not ch:
-        await it.response.send_message('Friendlies channel not found.', ephemeral=True); return
+        await it.response.send_message('Friendlies channel not found.', ephemeral=True)
+        return
+
     cooldown_key = f'rfa/{it.guild_id}/friendly_cooldown/{it.user.id}'
     last_used = _r(cooldown_key).get()
     if last_used and (time.time() - last_used) < 900:
@@ -840,13 +849,29 @@ async def friendlies_cmd(it):
         await it.response.send_message(f'You can use this command again in {mins}m {secs}s.', ephemeral=True)
         return
     _r(cooldown_key).set(time.time())
-    e = discord.Embed(color=C['pr'], title='Friendly Match Request',
-        description=f'**{tfmt(my_team)}** is looking for a friendly. Contact {it.user.mention} to arrange a match.')
-    e.add_field(name='Requested by', value=it.user.mention, inline=True)
-    e.add_field(name='Nation', value=tfmt(my_team), inline=True)
+
+    # Build embed based on whether user has a team
+    if my_team:
+        title = 'Friendly Match Request'
+        description = f'**{tfmt(my_team)}** is looking for a friendly. Contact {it.user.mention} to arrange a match.'
+        fields = [
+            ('Requested by', it.user.mention, True),
+            ('Nation', tfmt(my_team), True),
+        ]
+    else:
+        title = 'Friendly Match Request'
+        description = f'A community member is looking for a friendly. Contact {it.user.mention} to arrange a match.'
+        fields = [
+            ('Requested by', it.user.mention, True),
+        ]
+
+    e = discord.Embed(color=C['pr'], title=title, description=description)
+    for name, value, inline in fields:
+        e.add_field(name=name, value=value, inline=inline)
     ft, fi = footer(it.guild)
     e.set_footer(text=f'Roblox Football Association • {datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M")} UTC', icon_url=fi)
-    await ch.send(content=role.mention, embed=e)
+
+    await ch.send(content=friendly_role.mention, embed=e)
     await it.response.send_message('Friendly request posted.', ephemeral=True)
 
 @bot.tree.command(name='scout', description='Look for players as a team manager', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
