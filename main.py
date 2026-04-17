@@ -934,28 +934,35 @@ async def mass_verify(it: discord.Interaction):
 
     async with aiohttp.ClientSession(headers={'Authorization': 'Bearer rvr2g09tiy3u0peyo032wyvsoo8ce3k9xtisx71x8n3jh64a5dxgrl61sunyqfnbnqyu'}) as session:
         for member in unverified_members:
-            try:
-                async with session.get(f'https://registry.rover.link/api/guilds/{guild.id}/discord-to-roblox/{member.id}') as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        roblox_username = data.get('cachedUsername', 'Unknown')
-                        await member.remove_roles(unverified_role, reason='Mass verify')
-                        await member.add_roles(community_role, reason='Mass verify')
-                        verified_count += 1
-                        print(f'Verified {member} → {roblox_username}')
-                    elif response.status == 404:
-                        not_verified_count += 1
-                    elif response.status == 429:
-                        print(f'Rate limited on {member}, waiting 10s...')
-                        await asyncio.sleep(10)
-                        failed_count += 1
-                    else:
-                        failed_count += 1
-                        print(f'Error on {member}: HTTP {response.status} — {await response.text()}')
-            except Exception as e:
+            for attempt in range(5):
+                try:
+                    async with session.get(f'https://registry.rover.link/api/guilds/{guild.id}/discord-to-roblox/{member.id}') as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            roblox_username = data.get('cachedUsername', 'Unknown')
+                            await member.remove_roles(unverified_role, reason='Mass verify')
+                            await member.add_roles(community_role, reason='Mass verify')
+                            verified_count += 1
+                            print(f'Verified {member} → {roblox_username}')
+                            break
+                        elif response.status == 404:
+                            not_verified_count += 1
+                            break
+                        elif response.status == 429:
+                            retry_after = int(response.headers.get('Retry-After', 15))
+                            print(f'Rate limited on {member}, retrying in {retry_after}s... (attempt {attempt + 1}/5)')
+                            await asyncio.sleep(retry_after + 1)
+                        else:
+                            print(f'Unexpected {response.status} on {member}')
+                            failed_count += 1
+                            break
+                except Exception as e:
+                    print(f'Error on {member}: {e.__class__.__name__}: {e}')
+                    await asyncio.sleep(3)
+            else:
                 failed_count += 1
-                print(f'Error on {member}: {e.__class__.__name__}: {e}')
-            await asyncio.sleep(1.2)
+                print(f'Gave up on {member} after 5 attempts')
+            await asyncio.sleep(1.5)
 
     e = discord.Embed(title='Mass Verify Complete', color=C['a'])
     e.add_field(name='✅ Verified', value=str(verified_count), inline=True)
@@ -963,6 +970,7 @@ async def mass_verify(it: discord.Interaction):
     e.add_field(name='❌ Errors', value=str(failed_count), inline=True)
     e.set_footer(text=f'Scanned {len(unverified_members)} members total')
     await it.edit_original_response(content=None, embed=e)
+
 
 @bot.tree.command(name='signing', description='Toggle the signing window open or closed', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.choices(status=[app_commands.Choice(name='Open', value=1), app_commands.Choice(name='Closed', value=0)])
