@@ -945,12 +945,17 @@ async def mass_verify(it: discord.Interaction):
                         print(f'Verified {member} → {roblox_username}')
                     elif response.status == 404:
                         not_verified_count += 1
+                    elif response.status == 429:
+                        print(f'Rate limited on {member}, waiting 10s...')
+                        await asyncio.sleep(10)
+                        failed_count += 1
                     else:
                         failed_count += 1
+                        print(f'Error on {member}: HTTP {response.status} — {await response.text()}')
             except Exception as e:
                 failed_count += 1
-                print(f'Error on {member}: {e}')
-            await asyncio.sleep(0.5)
+                print(f'Error on {member}: {e.__class__.__name__}: {e}')
+            await asyncio.sleep(1.2)
 
     e = discord.Embed(title='Mass Verify Complete', color=C['a'])
     e.add_field(name='✅ Verified', value=str(verified_count), inline=True)
