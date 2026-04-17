@@ -906,6 +906,59 @@ async def scout_cmd(it, info: str):
     await ch.send(embed=e)
     await it.response.send_message('Scout request posted.', ephemeral=True)
 
+@bot.tree.command(name='massverify', description='Verify all unverified members who are linked on RoVer', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
+@app_commands.default_permissions(administrator=True)
+async def mass_verify(it: discord.Interaction):
+    UNVERIFIED_ROLE_ID = 1293659033487675432
+    COMMUNITY_ROLE_ID = 1293658127522074637
+
+    await it.response.defer()
+    guild = it.guild
+    unverified_role = guild.get_role(UNVERIFIED_ROLE_ID)
+    community_role = guild.get_role(COMMUNITY_ROLE_ID)
+
+    if not unverified_role:
+        await it.followup.send('❌ Unverified role not found.'); return
+    if not community_role:
+        await it.followup.send('❌ Community role not found.'); return
+
+    unverified_members = [m for m in guild.members if unverified_role in m.roles]
+    if not unverified_members:
+        await it.followup.send('✅ No unverified members found.'); return
+
+    await it.followup.send(f'🔄 Scanning **{len(unverified_members)}** unverified members...')
+
+    verified_count = 0
+    not_verified_count = 0
+    failed_count = 0
+
+    async with aiohttp.ClientSession(headers={'Authorization': 'Bearer rvr2g09tiy3u0peyo032wyvsoo8ce3k9xtisx71x8n3jh64a5dxgrl61sunyqfnbnqyu'}) as session:
+        for member in unverified_members:
+            try:
+                async with session.get(f'https://registry.rover.link/api/guilds/{guild.id}/discord-to-roblox/{member.id}') as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        roblox_username = data.get('cachedUsername', 'Unknown')
+                        await member.remove_roles(unverified_role, reason='Mass verify')
+                        await member.add_roles(community_role, reason='Mass verify')
+                        verified_count += 1
+                        print(f'Verified {member} → {roblox_username}')
+                    elif response.status == 404:
+                        not_verified_count += 1
+                    else:
+                        failed_count += 1
+            except Exception as e:
+                failed_count += 1
+                print(f'Error on {member}: {e}')
+            await asyncio.sleep(0.5)
+
+    e = discord.Embed(title='Mass Verify Complete', color=C['a'])
+    e.add_field(name='✅ Verified', value=str(verified_count), inline=True)
+    e.add_field(name='⏭️ Not on RoVer', value=str(not_verified_count), inline=True)
+    e.add_field(name='❌ Errors', value=str(failed_count), inline=True)
+    e.set_footer(text=f'Scanned {len(unverified_members)} members total')
+    await it.edit_original_response(content=None, embed=e)
+
 @bot.tree.command(name='signing', description='Toggle the signing window open or closed', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.choices(status=[app_commands.Choice(name='Open', value=1), app_commands.Choice(name='Closed', value=0)])
 @app_commands.default_permissions(administrator=True)
