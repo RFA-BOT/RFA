@@ -926,7 +926,7 @@ async def mass_verify(it: discord.Interaction):
     if not unverified_members:
         await it.followup.send('✅ No unverified members found.'); return
 
-    await it.followup.send(f'🔄 Scanning **{len(unverified_members)}** unverified members...')
+    await it.followup.send(f'🔄 Scanning **{len(unverified_members)}** unverified members... This will take a while, do not run the command again.')
 
     verified_count = 0
     not_verified_count = 0
@@ -937,6 +937,9 @@ async def mass_verify(it: discord.Interaction):
             for attempt in range(5):
                 try:
                     async with session.get(f'https://registry.rover.link/api/guilds/{guild.id}/discord-to-roblox/{member.id}') as response:
+                        remaining = int(response.headers.get('X-RateLimit-Remaining', 1))
+                        reset_after = float(response.headers.get('X-RateLimit-Reset-After', 1))
+
                         if response.status == 200:
                             data = await response.json()
                             roblox_username = data.get('cachedUsername', 'Unknown')
@@ -944,25 +947,36 @@ async def mass_verify(it: discord.Interaction):
                             await member.add_roles(community_role, reason='Mass verify')
                             verified_count += 1
                             print(f'Verified {member} → {roblox_username}')
+                            if remaining == 0:
+                                print(f'Bucket exhausted, waiting {reset_after}s...')
+                                await asyncio.sleep(reset_after + 0.5)
                             break
+
                         elif response.status == 404:
                             not_verified_count += 1
+                            if remaining == 0:
+                                print(f'Bucket exhausted, waiting {reset_after}s...')
+                                await asyncio.sleep(reset_after + 0.5)
                             break
+
                         elif response.status == 429:
-                            retry_after = int(response.headers.get('Retry-After', 15))
-                            print(f'Rate limited on {member}, retrying in {retry_after}s... (attempt {attempt + 1}/5)')
+                            retry_after = float(response.headers.get('Retry-After', 60))
+                            print(f'429 on {member}, waiting {retry_after}s before retrying... (attempt {attempt + 1}/5)')
                             await asyncio.sleep(retry_after + 1)
+
                         else:
                             print(f'Unexpected {response.status} on {member}')
                             failed_count += 1
                             break
+
                 except Exception as e:
                     print(f'Error on {member}: {e.__class__.__name__}: {e}')
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(5)
             else:
                 failed_count += 1
                 print(f'Gave up on {member} after 5 attempts')
-            await asyncio.sleep(1.5)
+
+            await asyncio.sleep(1.0)
 
     e = discord.Embed(title='Mass Verify Complete', color=C['a'])
     e.add_field(name='✅ Verified', value=str(verified_count), inline=True)
@@ -970,6 +984,7 @@ async def mass_verify(it: discord.Interaction):
     e.add_field(name='❌ Errors', value=str(failed_count), inline=True)
     e.set_footer(text=f'Scanned {len(unverified_members)} members total')
     await it.edit_original_response(content=None, embed=e)
+    
 
 
 @bot.tree.command(name='signing', description='Toggle the signing window open or closed', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
