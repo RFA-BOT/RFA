@@ -931,6 +931,7 @@ async def mass_verify(it: discord.Interaction):
     verified_count = 0
     not_verified_count = 0
     failed_count = 0
+    nickname_failed_count = 0
 
     async with aiohttp.ClientSession(headers={'Authorization': 'Bearer rvr2g09tiy3u0peyo032wyvsoo8ce3k9xtisx71x8n3jh64a5dxgrl61sunyqfnbnqyu'}) as session:
         for member in unverified_members:
@@ -940,28 +941,32 @@ async def mass_verify(it: discord.Interaction):
                         remaining = int(response.headers.get('X-RateLimit-Remaining', 1))
                         reset_after = float(response.headers.get('X-RateLimit-Reset-After', 1))
 
-if response.status == 200:
-    data = await response.json()
-    roblox_username = data.get('cachedUsername', 'Unknown')
-    await member.remove_roles(unverified_role, reason='Mass verify')
-    await member.add_roles(community_role, reason='Mass verify')
-    
-    # ✅ Actually apply the nickname
-    try:
-        await member.edit(nick=roblox_username, reason='Mass verify — RoVer sync')
-    except discord.Forbidden:
-        # Can't rename members with higher roles than the bot (e.g. admins)
-        print(f'[massverify] Cannot rename {member} — insufficient permissions')
-    except discord.HTTPException as e:
-        print(f'[massverify] Failed to rename {member}: {e}')
-    
-    verified_count += 1
-    print(f'Verified {member} → {roblox_username}')
-    
-    if remaining == 0:
-        print(f'Bucket exhausted, waiting {reset_after}s...')
-        await asyncio.sleep(reset_after + 0.5)
-    break
+                        if response.status == 200:
+                            data = await response.json()
+                            roblox_username = data.get('cachedUsername', 'Unknown')
+
+                            # Update roles
+                            await member.remove_roles(unverified_role, reason='Mass verify')
+                            await member.add_roles(community_role, reason='Mass verify')
+
+                            # Apply Roblox username as nickname
+                            try:
+                                await member.edit(nick=roblox_username, reason='Mass verify — RoVer sync')
+                            except discord.Forbidden:
+                                # Bot can't rename members with equal/higher roles (e.g. admins)
+                                nickname_failed_count += 1
+                                print(f'[massverify] Cannot rename {member} — insufficient permissions')
+                            except discord.HTTPException as e:
+                                nickname_failed_count += 1
+                                print(f'[massverify] Failed to rename {member}: {e}')
+
+                            verified_count += 1
+                            print(f'Verified {member} → {roblox_username}')
+
+                            if remaining == 0:
+                                print(f'Bucket exhausted, waiting {reset_after}s...')
+                                await asyncio.sleep(reset_after + 0.5)
+                            break
 
                         elif response.status == 404:
                             not_verified_count += 1
@@ -993,6 +998,7 @@ if response.status == 200:
     e.add_field(name='✅ Verified', value=str(verified_count), inline=True)
     e.add_field(name='⏭️ Not on RoVer', value=str(not_verified_count), inline=True)
     e.add_field(name='❌ Errors', value=str(failed_count), inline=True)
+    e.add_field(name='⚠️ Nickname Skipped', value=str(nickname_failed_count), inline=True)
     e.set_footer(text=f'Scanned {len(unverified_members)} members total')
     await it.edit_original_response(content=None, embed=e)
     
