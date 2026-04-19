@@ -1361,6 +1361,55 @@ async def logs_cmd(it, action: str = None, limit: int = 20):
     e.set_footer(text=f'Showing {len(entries)} entries | RFA', icon_url=fi)
     await it.followup.send(embed=e, ephemeral=True)
 
+class LinksView(discord.ui.View):
+    def __init__(self, member_role_ids: set):
+        super().__init__(timeout=120)
+        self.add_item(LinksSelect(member_role_ids))
+
+
+class LinksSelect(discord.ui.Select):
+    def __init__(self, member_role_ids: set):
+        options = []
+        for label, description, url, required_roles in LINKS_DATA:
+            if required_roles and not any(rid in member_role_ids for rid in required_roles):
+                continue
+            options.append(discord.SelectOption(label=label, description=description, value=url))
+
+        super().__init__(
+            placeholder="Choose a link…",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, it: discord.Interaction):
+        await it.response.send_message(self.values[0], ephemeral=True)
+
+
+@bot.tree.command(
+    name="links",
+    description="Get a quick link for RFA",
+    guild=discord.Object(id=int(os.environ.get("DISCORD_GUILD_ID", 0))),
+)
+async def links_cmd(it: discord.Interaction):
+    # Safely get role IDs — works in both guild and DM context
+    if it.guild and isinstance(it.user, discord.Member):
+        member_role_ids = {r.id for r in it.user.roles}
+    else:
+        # In DMs we have no role info, so only show unrestricted links
+        member_role_ids = set()
+
+    view = LinksView(member_role_ids)
+    if not view.children[0].options:
+        await it.response.send_message("No links available here.", ephemeral=True)
+        return
+
+    await it.response.send_message(
+        "Select a link below — it'll be sent to you privately.",
+        view=view,
+        ephemeral=True,
+    )
+
 @bot.tree.command(name='addpin', description='Upload an image as a pin and grant it to a Roblox player', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def addpin_cmd(it, roblox_username: str, image: discord.Attachment):
