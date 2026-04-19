@@ -31,6 +31,18 @@ TEAM_ROLES: dict[str, int] = {
     'albania': 1489664332240257196, 'austria': 1489666121186414642,
     'belgium': 1489666392658546708, 'croatia': 1489666882637402222,
 }
+REFEREE_ROLE_ID = 1476678423479975966
+
+LINKS_DATA = [
+    ("🎮 Game",           "Play RFA on Roblox",           "https://www.roblox.com/games/126519602812261/World#!/about",   None),
+    ("👥 Group",          "Join the Roblox group",        "https://www.roblox.com/communities/35056215/Realistic-Football-Association#!/about", None),
+    ("🏠 Main Server",    "Join the main Discord",        "https://discord.gg/ABUpNSYqqa",                               None),
+    ("⚖️ Appeal Server",  "Appeal a ban",                 "https://discord.gg/NSst6PsNkB",                               None),
+    ("▶️ YouTube",        "Watch RFA videos",             "https://www.youtube.com/@RoFootballAssociation",              None),
+    ("📋 Team Template",  "Set up a team server",         "https://discord.new/edkZJ3xsKshA",                            [MANAGER_ROLE_ID, ASST_ROLE_ID]),
+    ("🏁 Referee Server", "Join the referee server",      "https://discord.gg/p2eygmHR3g",                               [REFEREE_ROLE_ID]),
+]
+
 
 TEAM_FLAGS: dict[str, str] = {
     'netherlands': '🇳🇱', 'scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 'ukraine': '🇺🇦',
