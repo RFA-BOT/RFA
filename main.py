@@ -32,7 +32,8 @@ TEAM_ROLES: dict[str, int] = {
     'belgium': 1489666392658546708, 'croatia': 1489666882637402222,
 }
 REFEREE_ROLE_ID = 1476678423479975966
-
+MANAGER_ROLE_ID = 1476677221245784207
+ASST_ROLE_ID = 1476677267856818236
 LINKS_DATA = [
     ("🎮 Game",           "Play RFA on Roblox",           "https://www.roblox.com/games/126519602812261/World#!/about",   None),
     ("👥 Group",          "Join the Roblox group",        "https://www.roblox.com/communities/35056215/Realistic-Football-Association#!/about", None),
@@ -57,8 +58,6 @@ TEAM_FLAGS: dict[str, str] = {
 
 TEAM_CHOICES = [app_commands.Choice(name=k.title(), value=k) for k in sorted(TEAM_ROLES.keys())]
 
-MANAGER_ROLE_ID = 1476677221245784207
-ASST_ROLE_ID = 1476677267856818236
 STAFF_ROLE_ID = 1475565079767290040
 FREE_AGENT_CHANNEL_ID = 1292595174232424518
 FREE_AGENT_COOLDOWN = 5 * 60 * 60
