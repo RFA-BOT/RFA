@@ -829,7 +829,6 @@ async def freeagent_cmd(it, position: str, experience: str, about: str = None):
     await it.response.send_message(f'Your free-agent post has been sent to {ch.mention}!', ephemeral=True)
 
 @bot.tree.command(name='friendly', description='Request a friendly match', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
-@app_commands.default_permissions(manage_messages=True)
 async def friendlies_cmd(it):
     friendly_role = it.guild.get_role(FRIENDLY_PING_ROLE_ID)
     if not friendly_role:
