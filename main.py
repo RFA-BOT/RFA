@@ -731,6 +731,125 @@ async def sign_cmd(it, player: discord.Member, pos: str, tier: str, notes: str =
     _r(f'rfa/{it.guild_id}/contracts/{cid}').set(row)
     bot.add_view(v)
 
+@bot.tree.command(name='ban', description='Ban a member from Discord and the Roblox game', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
+@app_commands.describe(
+    member='The Discord member to ban',
+    roblox_username='Their Roblox username',
+    reason='Reason for the ban',
+    duration_days='Roblox game ban duration in days (leave empty for permanent)',
+)
+@app_commands.default_permissions(administrator=True)
+async def ban_cmd(it: discord.Interaction, member: discord.Member, roblox_username: str, reason: str, duration_days: int = None):
+    await it.response.defer()
+
+    if member.id == it.user.id:
+        await it.followup.send('You cannot ban yourself.'); return
+    if member.guild_permissions.administrator:
+        await it.followup.send('You cannot ban an administrator.'); return
+    if member.top_role >= it.user.top_role and not it.user.guild_permissions.administrator:
+        await it.followup.send('You cannot ban a member with an equal or higher role.'); return
+
+    # -- Resolve Roblox user --
+    roblox_user_id = await roblox_get_user_id(roblox_username)
+    if not roblox_user_id:
+        await it.followup.send(f'Roblox user **{roblox_username}** not found. Aborting.'); return
+
+    dur_label = f'{duration_days} day(s)' if duration_days else 'Permanent'
+
+    # -- DM the banned member BEFORE kicking them --
+    dm_embed = discord.Embed(
+        color=0xed4245,
+        title='You have been banned',
+        description=(
+            f'You have been banned from **{it.guild.name}** and the Roblox game.\n\n'
+            f'**Reason:** {reason}\n'
+            f'**Duration:** {dur_label}\n\n'
+            'If you believe this ban was issued in error, you may submit an appeal below.\n'
+            'https://discord.gg/5NBkSskAwt'
+        )
+    )
+    dm_embed.set_footer(text='Roblox Football Association')
+    try:
+        await member.send(embed=dm_embed)
+    except (discord.Forbidden, discord.HTTPException):
+        pass  # DMs closed — continue regardless
+
+    # -- Discord ban --
+    discord_banned = False
+    discord_error = None
+    try:
+        await it.guild.ban(member, reason=f'{reason} | Banned by {it.user}', delete_message_days=0)
+        discord_banned = True
+    except discord.Forbidden:
+        discord_error = 'Missing permissions to ban this member.'
+    except discord.HTTPException as ex:
+        discord_error = str(ex)
+
+    # -- Roblox game ban --
+    roblox_banned = False
+    roblox_error = None
+    success, msg = await roblox_ban(roblox_user_id, reason, duration_days)
+    if success:
+        roblox_banned = True
+        _r(f'rfa/{it.guild_id}/roblox_bans/{roblox_user_id}').set({
+            'username': roblox_username,
+            'reason': reason,
+            'duration_days': duration_days,
+            'permanent': duration_days is None,
+            'banned_by': it.user.id,
+            'banned_at': _now(),
+        })
+        await roblox_message('ChatLog', {
+            'scope': 'all',
+            'color': 'red',
+            'text': f'[BAN] {roblox_username} has been banned. Reason: {reason} ({dur_label})',
+            'sender': 'RFA System',
+        })
+    else:
+        roblox_error = msg
+
+    # -- Audit log --
+    audit_log(it.guild_id, 'ban', {
+        'discord_id': member.id,
+        'username': roblox_username,
+        'user_id': roblox_user_id,
+        'reason': reason,
+        'duration': dur_label,
+        'discord_banned': discord_banned,
+        'roblox_banned': roblox_banned,
+        'by': it.user.name,
+        'by_id': it.user.id,
+    })
+
+    # -- Response embed --
+    all_success = discord_banned and roblox_banned
+    color = C['d'] if all_success else C['gold']
+
+    e = discord.Embed(
+        color=color,
+        title='Ban Issued' if all_success else 'Ban Partially Issued',
+    )
+    e.add_field(name='Member', value=f'{member} ({member.id})', inline=True)
+    e.add_field(name='Roblox', value=roblox_username, inline=True)
+    e.add_field(name='Duration', value=dur_label, inline=True)
+    e.add_field(name='Reason', value=reason, inline=False)
+    e.add_field(
+        name='Discord Ban',
+        value='Issued' if discord_banned else f'Failed — {discord_error}',
+        inline=True,
+    )
+    e.add_field(
+        name='Roblox Ban',
+        value='Issued' if roblox_banned else f'Failed — {roblox_error}',
+        inline=True,
+    )
+    e.add_field(name='Banned by', value=it.user.mention, inline=False)
+
+    ft, fi = footer(it.guild)
+    e.set_footer(text=ft, icon_url=fi)
+
+    await it.followup.send(embed=e)
+
 @bot.tree.command(name='release', description='Release a player from your squad', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(player='The player to release')
 @app_commands.default_permissions(manage_messages=True)
