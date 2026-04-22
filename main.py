@@ -611,7 +611,7 @@ class TicketReasonSelect(discord.ui.Select):
         )
 
     async def callback(self, it: discord.Interaction):
-        await it.response.defer(ephemeral=True)  # 👈 CRITICAL: prevents timeout
+        await it.response.defer(ephemeral=True)
 
         reason = self.values[0]
         guild_id = it.guild_id
@@ -620,6 +620,7 @@ class TicketReasonSelect(discord.ui.Select):
             await it.followup.send('Ticket system not configured.', ephemeral=True)
             return
 
+        # Check for existing open ticket
         tickets = _r(f'rfa/{guild_id}/tickets').get() or {}
         for ch_id, tk in tickets.items():
             if tk.get('uid') == it.user.id and tk.get('status') == 'open':
@@ -628,13 +629,27 @@ class TicketReasonSelect(discord.ui.Select):
                     await it.followup.send(f'You already have an open ticket: {ch.mention}', ephemeral=True)
                     return
 
-        cat = it.guild.get_channel(int(tcat))
-        if not cat:
+        base_category = it.guild.get_channel(int(tcat))
+        if not base_category or not isinstance(base_category, discord.CategoryChannel):
             await it.followup.send('Ticket category not found.', ephemeral=True)
             return
 
-        staff_role = it.guild.get_role(STAFF_ROLE_ID)
+        # Find or create a category with free slots
+        async def get_available_category(guild, category):
+            if len(category.channels) < 50:
+                return category
+            overflow_name = f'{category.name} Overflow'
+            overflow = discord.utils.get(guild.categories, name=overflow_name)
+            if overflow and len(overflow.channels) < 50:
+                return overflow
+            overflow = await guild.create_category(overflow_name)
+            # Copy permissions from the original category
+            await overflow.edit(overwrites=category.overwrites)
+            return overflow
 
+        target_category = await get_available_category(it.guild, base_category)
+
+        staff_role = it.guild.get_role(STAFF_ROLE_ID)
         ow = {
             it.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             it.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
@@ -646,10 +661,10 @@ class TicketReasonSelect(discord.ui.Select):
         # Create the ticket channel
         try:
             ch = await it.guild.create_text_channel(
-                f'ticket-{it.user.name}', category=cat, overwrites=ow
+                f'ticket-{it.user.name}', category=target_category, overwrites=ow
             )
         except discord.Forbidden:
-            await it.followup.send('I lack permission to create channels in that category.', ephemeral=True)
+            await it.followup.send('I lack permission to create channels.', ephemeral=True)
             return
         except Exception as e:
             await it.followup.send(f'Failed to create channel: {e}', ephemeral=True)
@@ -676,6 +691,18 @@ class TicketReasonSelect(discord.ui.Select):
         e.set_footer(text=ft, icon_url=fi)
         await ch.send(embed=e, view=CloseTicketView())
         await it.followup.send(f'Your ticket has been created: {ch.mention}', ephemeral=True)
+
+        # Optional: clean up old closed tickets (older than 7 days) to free slots
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        for ch_id, tk in tickets.items():
+            if tk.get('status') == 'closed' and tk.get('closed', '') < cutoff:
+                old_ch = it.guild.get_channel(int(ch_id))
+                if old_ch:
+                    try:
+                        await old_ch.delete(reason='Auto‑cleanup of old closed ticket')
+                    except:
+                        pass
+                _r(f'rfa/{guild_id}/tickets/{ch_id}').delete()
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
