@@ -611,22 +611,26 @@ class TicketReasonSelect(discord.ui.Select):
         )
 
     async def callback(self, it: discord.Interaction):
+        await it.response.defer(ephemeral=True)  # 👈 CRITICAL: prevents timeout
+
         reason = self.values[0]
         guild_id = it.guild_id
         tcat = _r(f'rfa/{guild_id}/cfg/tcat').get()
         if not tcat:
-            await it.response.send_message('Ticket system not configured.', ephemeral=True)
+            await it.followup.send('Ticket system not configured.', ephemeral=True)
             return
+
         tickets = _r(f'rfa/{guild_id}/tickets').get() or {}
         for ch_id, tk in tickets.items():
             if tk.get('uid') == it.user.id and tk.get('status') == 'open':
                 ch = it.guild.get_channel(int(ch_id))
                 if ch:
-                    await it.response.send_message(f'You already have an open ticket: {ch.mention}', ephemeral=True)
+                    await it.followup.send(f'You already have an open ticket: {ch.mention}', ephemeral=True)
                     return
+
         cat = it.guild.get_channel(int(tcat))
         if not cat:
-            await it.response.send_message('Ticket category not found.', ephemeral=True)
+            await it.followup.send('Ticket category not found.', ephemeral=True)
             return
 
         staff_role = it.guild.get_role(STAFF_ROLE_ID)
@@ -639,9 +643,18 @@ class TicketReasonSelect(discord.ui.Select):
         if staff_role:
             ow[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
-        ch = await it.guild.create_text_channel(
-            f'ticket-{it.user.name}', category=cat, overwrites=ow
-        )
+        # Create the ticket channel
+        try:
+            ch = await it.guild.create_text_channel(
+                f'ticket-{it.user.name}', category=cat, overwrites=ow
+            )
+        except discord.Forbidden:
+            await it.followup.send('I lack permission to create channels in that category.', ephemeral=True)
+            return
+        except Exception as e:
+            await it.followup.send(f'Failed to create channel: {e}', ephemeral=True)
+            return
+
         _r(f'rfa/{guild_id}/tickets/{ch.id}').set({
             'uid': it.user.id,
             'status': 'open',
@@ -649,6 +662,7 @@ class TicketReasonSelect(discord.ui.Select):
             'closed': None,
             'reason': reason,
         })
+
         ft, fi = footer(it.guild)
         e = discord.Embed(
             color=C['pr'],
@@ -661,7 +675,7 @@ class TicketReasonSelect(discord.ui.Select):
         )
         e.set_footer(text=ft, icon_url=fi)
         await ch.send(embed=e, view=CloseTicketView())
-        await it.response.send_message(f'Your ticket has been created: {ch.mention}', ephemeral=True)
+        await it.followup.send(f'Your ticket has been created: {ch.mention}', ephemeral=True)
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
