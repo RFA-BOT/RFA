@@ -610,61 +610,58 @@ class TicketReasonSelect(discord.ui.Select):
             custom_id='ticket_reason_select',
         )
 
-async def callback(self, it: discord.Interaction):
-    reason = self.values[0]
-    guild_id = it.guild_id
-    tcat = _r(f'rfa/{guild_id}/cfg/tcat').get()
-    if not tcat:
-        await it.response.send_message('Ticket system not configured.', ephemeral=True)
-        return
-    tickets = _r(f'rfa/{guild_id}/tickets').get() or {}
-    for ch_id, tk in tickets.items():
-        if tk.get('uid') == it.user.id and tk.get('status') == 'open':
-            ch = it.guild.get_channel(int(ch_id))
-            if ch:
-                await it.response.send_message(f'You already have an open ticket: {ch.mention}', ephemeral=True)
-                return
-    cat = it.guild.get_channel(int(tcat))
-    if not cat:
-        await it.response.send_message('Ticket category not found.', ephemeral=True)
-        return
+    async def callback(self, it: discord.Interaction):
+        reason = self.values[0]
+        guild_id = it.guild_id
+        tcat = _r(f'rfa/{guild_id}/cfg/tcat').get()
+        if not tcat:
+            await it.response.send_message('Ticket system not configured.', ephemeral=True)
+            return
+        tickets = _r(f'rfa/{guild_id}/tickets').get() or {}
+        for ch_id, tk in tickets.items():
+            if tk.get('uid') == it.user.id and tk.get('status') == 'open':
+                ch = it.guild.get_channel(int(ch_id))
+                if ch:
+                    await it.response.send_message(f'You already have an open ticket: {ch.mention}', ephemeral=True)
+                    return
+        cat = it.guild.get_channel(int(tcat))
+        if not cat:
+            await it.response.send_message('Ticket category not found.', ephemeral=True)
+            return
 
-    # Get only the staff role (no manager/assistant roles)
-    staff_role = it.guild.get_role(STAFF_ROLE_ID)
+        staff_role = it.guild.get_role(STAFF_ROLE_ID)
 
-    ow = {
-        it.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        it.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
-        it.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
-    }
-    if staff_role:
-        ow[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        ow = {
+            it.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            it.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
+            it.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
+        }
+        if staff_role:
+            ow[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
-    # DO NOT add manager or assistant manager roles here
-
-    ch = await it.guild.create_text_channel(
-        f'ticket-{it.user.name}', category=cat, overwrites=ow
-    )
-    _r(f'rfa/{guild_id}/tickets/{ch.id}').set({
-        'uid': it.user.id,
-        'status': 'open',
-        'created': _now(),
-        'closed': None,
-        'reason': reason,
-    })
-    ft, fi = footer(it.guild)
-    e = discord.Embed(
-        color=C['pr'],
-        title=f'Ticket — {reason}',
-        description=(
-            f'Welcome {it.user.mention}! A member of staff will be with you shortly.\n\n'
-            f'**Reason:** {reason}\n\n'
-            f'Please describe your issue in as much detail as possible.'
+        ch = await it.guild.create_text_channel(
+            f'ticket-{it.user.name}', category=cat, overwrites=ow
         )
-    )
-    e.set_footer(text=ft, icon_url=fi)
-    await ch.send(embed=e, view=CloseTicketView())
-    await it.response.send_message(f'Your ticket has been created: {ch.mention}', ephemeral=True)
+        _r(f'rfa/{guild_id}/tickets/{ch.id}').set({
+            'uid': it.user.id,
+            'status': 'open',
+            'created': _now(),
+            'closed': None,
+            'reason': reason,
+        })
+        ft, fi = footer(it.guild)
+        e = discord.Embed(
+            color=C['pr'],
+            title=f'Ticket — {reason}',
+            description=(
+                f'Welcome {it.user.mention}! A member of staff will be with you shortly.\n\n'
+                f'**Reason:** {reason}\n\n'
+                f'Please describe your issue in as much detail as possible.'
+            )
+        )
+        e.set_footer(text=ft, icon_url=fi)
+        await ch.send(embed=e, view=CloseTicketView())
+        await it.response.send_message(f'Your ticket has been created: {ch.mention}', ephemeral=True)
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
