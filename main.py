@@ -692,18 +692,6 @@ class TicketReasonSelect(discord.ui.Select):
         await ch.send(embed=e, view=CloseTicketView())
         await it.followup.send(f'Your ticket has been created: {ch.mention}', ephemeral=True)
 
-        # Optional: clean up old closed tickets (older than 7 days) to free slots
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-        for ch_id, tk in tickets.items():
-            if tk.get('status') == 'closed' and tk.get('closed', '') < cutoff:
-                old_ch = it.guild.get_channel(int(ch_id))
-                if old_ch:
-                    try:
-                        await old_ch.delete(reason='Auto‑cleanup of old closed ticket')
-                    except:
-                        pass
-                _r(f'rfa/{guild_id}/tickets/{ch_id}').delete()
-
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
