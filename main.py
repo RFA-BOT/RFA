@@ -59,6 +59,7 @@ TEAM_FLAGS: dict[str, str] = {
 TEAM_CHOICES = [app_commands.Choice(name=k.title(), value=k) for k in sorted(TEAM_ROLES.keys())]
 
 STAFF_ROLE_ID = 1475565079767290040
+SIGNING_LOG_CHANNEL_ID = 1497680605398307018
 FREE_AGENT_CHANNEL_ID = 1292595174232424518
 FREE_AGENT_COOLDOWN = 5 * 60 * 60
 CONTRACT_LOG_CHANNEL_ID = 1476037356917227782
@@ -427,6 +428,15 @@ class SignView(discord.ui.View):
                     content=f'Contract {verb_past} — <@{row["sg_id"]}> has **{verb}** the offer from <@{row["ct_id"]}> to join **{tfmt(team)}**.',
                     embed=updated, view=self)
         except: pass
+        # Post to signing/release log channel on accepted contracts only
+        if accepted:
+            try:
+                sign_log_ch = bot.get_channel(SIGNING_LOG_CHANNEL_ID)
+                if sign_log_ch:
+                    await sign_log_ch.send(
+                        f'<@{row["sg_id"]}> has been __**signed**__ to {tfmt(team)} by <@{row["ct_id"]}>'
+                    )
+            except Exception as e: print(f'[signing log] {e}')
 
     @discord.ui.button(label='Accept', style=discord.ButtonStyle.success, custom_id='sign_a_placeholder')
     async def accept_btn(self, it, _): await self._resolve(it, True)
@@ -895,6 +905,13 @@ async def release_cmd(it, player: discord.Member):
     await it.response.send_message(embed=e)
     try: await player.send(embed=discord.Embed(color=C['d'], description=f'You were released from **{tfmt(player_team)}** by {it.user.mention}.'))
     except: pass
+    try:
+        sign_log_ch = bot.get_channel(SIGNING_LOG_CHANNEL_ID)
+        if sign_log_ch:
+            await sign_log_ch.send(
+                f'{player.mention} has been __**released**__ from {tfmt(player_team)} by {it.user.mention}'
+            )
+    except Exception as ex: print(f'[signing log release] {ex}')
 
 # ── /forceadd ─────────────────────────────────────────────────────────────────
 # Admin-only — kept hidden intentionally.
