@@ -634,7 +634,6 @@ class TicketReasonSelect(discord.ui.Select):
             await it.followup.send('Ticket category not found.', ephemeral=True)
             return
 
-        # Find or create a category with free slots
         async def get_available_category(guild, category):
             if len(category.channels) < 50:
                 return category
@@ -643,7 +642,6 @@ class TicketReasonSelect(discord.ui.Select):
             if overflow and len(overflow.channels) < 50:
                 return overflow
             overflow = await guild.create_category(overflow_name)
-            # Copy permissions from the original category
             await overflow.edit(overwrites=category.overwrites)
             return overflow
 
@@ -658,7 +656,6 @@ class TicketReasonSelect(discord.ui.Select):
         if staff_role:
             ow[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
-        # Create the ticket channel
         try:
             ch = await it.guild.create_text_channel(
                 f'ticket-{it.user.name}', category=target_category, overwrites=ow
@@ -710,9 +707,10 @@ class TicketPanelView(discord.ui.View):
             ephemeral=True,
         )
 
+# ── /contract ─────────────────────────────────────────────────────────────────
+# Visible to everyone; permission check done internally.
 @bot.tree.command(name='contract', description='Send a contract offer to a player', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(player='The player to offer a contract to', pos='Position (e.g. GK, CB, ST)', tier='Role (e.g. Starter, Sub, Backup)', notes='Optional notes')
-@app_commands.default_permissions(manage_messages=True)
 async def sign_cmd(it, player: discord.Member, pos: str, tier: str, notes: str = None):
     if not is_manager(it.user) and not it.user.guild_permissions.administrator:
         await it.response.send_message('You must have the **Manager** or **Assistant Manager** role to sign players.', ephemeral=True); return
@@ -757,6 +755,8 @@ async def sign_cmd(it, player: discord.Member, pos: str, tier: str, notes: str =
     _r(f'rfa/{it.guild_id}/contracts/{cid}').set(row)
     bot.add_view(v)
 
+# ── /ban ──────────────────────────────────────────────────────────────────────
+# Admin-only — kept with default_permissions (intentionally hidden from non-admins).
 @bot.tree.command(name='ban', description='Ban a member from Discord and the Roblox game', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(
     member='The Discord member to ban',
@@ -775,14 +775,12 @@ async def ban_cmd(it: discord.Interaction, member: discord.Member, roblox_userna
     if member.top_role >= it.user.top_role and not it.user.guild_permissions.administrator:
         await it.followup.send('You cannot ban a member with an equal or higher role.'); return
 
-    # -- Resolve Roblox user --
     roblox_user_id = await roblox_get_user_id(roblox_username)
     if not roblox_user_id:
         await it.followup.send(f'Roblox user **{roblox_username}** not found. Aborting.'); return
 
     dur_label = f'{duration_days} day(s)' if duration_days else 'Permanent'
 
-    # -- DM the banned member BEFORE kicking them --
     dm_embed = discord.Embed(
         color=0xed4245,
         title='You have been banned',
@@ -798,9 +796,8 @@ async def ban_cmd(it: discord.Interaction, member: discord.Member, roblox_userna
     try:
         await member.send(embed=dm_embed)
     except (discord.Forbidden, discord.HTTPException):
-        pass  # DMs closed — continue regardless
+        pass
 
-    # -- Discord ban --
     discord_banned = False
     discord_error = None
     try:
@@ -811,7 +808,6 @@ async def ban_cmd(it: discord.Interaction, member: discord.Member, roblox_userna
     except discord.HTTPException as ex:
         discord_error = str(ex)
 
-    # -- Roblox game ban --
     roblox_banned = False
     roblox_error = None
     success, msg = await roblox_ban(roblox_user_id, reason, duration_days)
@@ -834,7 +830,6 @@ async def ban_cmd(it: discord.Interaction, member: discord.Member, roblox_userna
     else:
         roblox_error = msg
 
-    # -- Audit log --
     audit_log(it.guild_id, 'ban', {
         'discord_id': member.id,
         'username': roblox_username,
@@ -847,7 +842,6 @@ async def ban_cmd(it: discord.Interaction, member: discord.Member, roblox_userna
         'by_id': it.user.id,
     })
 
-    # -- Response embed --
     all_success = discord_banned and roblox_banned
     color = C['d'] if all_success else C['gold']
 
@@ -876,9 +870,10 @@ async def ban_cmd(it: discord.Interaction, member: discord.Member, roblox_userna
 
     await it.followup.send(embed=e)
 
+# ── /release ──────────────────────────────────────────────────────────────────
+# Visible to everyone; permission check done internally.
 @bot.tree.command(name='release', description='Release a player from your squad', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(player='The player to release')
-@app_commands.default_permissions(manage_messages=True)
 async def release_cmd(it, player: discord.Member):
     if not is_manager(it.user) and not it.user.guild_permissions.administrator:
         await it.response.send_message('Only managers / assistants can release players.', ephemeral=True); return
@@ -901,6 +896,8 @@ async def release_cmd(it, player: discord.Member):
     try: await player.send(embed=discord.Embed(color=C['d'], description=f'You were released from **{tfmt(player_team)}** by {it.user.mention}.'))
     except: pass
 
+# ── /forceadd ─────────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='forceadd', description='[Admin] Force-add a player to a team', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(player='Player to add', team='Target team')
 @app_commands.choices(team=TEAM_CHOICES)
@@ -920,6 +917,8 @@ async def forceadd_cmd(it, player: discord.Member, team: str):
     e.set_footer(text=ft, icon_url=fi)
     await it.response.send_message(embed=e)
 
+# ── /teamsheet ────────────────────────────────────────────────────────────────
+# Public — no changes needed.
 @bot.tree.command(name='teamsheet', description="View a nation's current squad", guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.choices(team=TEAM_CHOICES)
 async def teamsheet_cmd(it: discord.Interaction, team: str):
@@ -927,20 +926,17 @@ async def teamsheet_cmd(it: discord.Interaction, team: str):
     roster = get_team_roster(it.guild, team)
     e = discord.Embed(color=0x2b2d31, title=f"{tfmt(team)} — Squad Sheet")
 
-    # Role IDs to exclude from the "roles" display (team roles, @everyone, known staff noise)
     EXCLUDED_ROLE_IDS = set(TEAM_ROLES.values()) | {
-        it.guild.default_role.id,  # @everyone
+        it.guild.default_role.id,
         STAFF_ROLE_ID, REFEREE_ROLE_ID,
         MANAGER_ROLE_ID, ASST_ROLE_ID,
     }
 
     def member_roles_str(m: discord.Member) -> str:
-        """Return a comma-separated list of visible non-team roles for a member."""
         roles = [
             r for r in m.roles
-            if r.id not in EXCLUDED_ROLE_IDS and not r.managed  # skip bot-managed roles
+            if r.id not in EXCLUDED_ROLE_IDS and not r.managed
         ]
-        # Sort highest position first (most important role first)
         roles.sort(key=lambda r: r.position, reverse=True)
         return ', '.join(r.mention for r in roles) if roles else '—'
 
@@ -979,6 +975,8 @@ async def teamsheet_cmd(it: discord.Interaction, team: str):
 
     await it.followup.send(embed=e)
 
+# ── /freeagent ────────────────────────────────────────────────────────────────
+# Public — no changes needed.
 @bot.tree.command(name='freeagent', description='Post your free-agent ad in the free-agency channel', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(position='Your position (e.g. GK, CB, ST)', experience='Your experience level', about='Short description (optional)')
 async def freeagent_cmd(it, position: str, experience: str, about: str = None):
@@ -1006,9 +1004,10 @@ async def freeagent_cmd(it, position: str, experience: str, about: str = None):
     await ch.send(content=it.user.mention, embed=e)
     await it.response.send_message(f'Your free-agent post has been sent to {ch.mention}!', ephemeral=True)
 
+# ── /friendly ─────────────────────────────────────────────────────────────────
+# Public — no changes needed.
 @bot.tree.command(name='friendly', description='Request a friendly match', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 async def friendlies_cmd(it: discord.Interaction):
-    # Resolve guild — command is guild-only but user may invoke from a DM via the guild's slash command list
     guild = it.guild or bot.get_guild(DISCORD_GUILD_ID)
     if not guild:
         await it.response.send_message('Could not find the RFA guild. Please use this command inside the server.', ephemeral=True)
@@ -1019,8 +1018,7 @@ async def friendlies_cmd(it: discord.Interaction):
         await it.response.send_message('Friendly ping role not found. Contact an administrator.', ephemeral=True)
         return
 
-    # Fetch the member object from the guild so role checks work even if invoked from DMs
-    member = it.guild and it.user  # already a Member in guild context
+    member = it.guild and it.user
     if not isinstance(member, discord.Member):
         member = guild.get_member(it.user.id)
     if not member:
@@ -1054,7 +1052,6 @@ async def friendlies_cmd(it: discord.Interaction):
         return
     _r(cooldown_key).set(time.time())
 
-    # Plain display name shown next to the mention so it reads clearly in the channel
     plain_name = member.display_name
 
     if my_team:
@@ -1078,6 +1075,8 @@ async def friendlies_cmd(it: discord.Interaction):
     await ch.send(content=friendly_role.mention, embed=e)
     await it.response.send_message('Friendly request posted.', ephemeral=True)
 
+# ── /scout ────────────────────────────────────────────────────────────────────
+# Visible to everyone; permission check done internally.
 @bot.tree.command(name='scout', description='Look for players as a team manager', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(info='What kind of players or positions you are looking for')
 async def scout_cmd(it, info: str):
@@ -1110,6 +1109,8 @@ async def scout_cmd(it, info: str):
     await ch.send(embed=e)
     await it.response.send_message('Scout request posted.', ephemeral=True)
 
+# ── /massverify ───────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='massverify', description='Verify all unverified members who are linked on RoVer', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def mass_verify(it: discord.Interaction):
@@ -1149,15 +1150,12 @@ async def mass_verify(it: discord.Interaction):
                             data = await response.json()
                             roblox_username = data.get('cachedUsername', 'Unknown')
 
-                            # Update roles
                             await member.remove_roles(unverified_role, reason='Mass verify')
                             await member.add_roles(community_role, reason='Mass verify')
 
-                            # Apply Roblox username as nickname
                             try:
                                 await member.edit(nick=roblox_username, reason='Mass verify — RoVer sync')
                             except discord.Forbidden:
-                                # Bot can't rename members with equal/higher roles (e.g. admins)
                                 nickname_failed_count += 1
                                 print(f'[massverify] Cannot rename {member} — insufficient permissions')
                             except discord.HTTPException as e:
@@ -1205,9 +1203,9 @@ async def mass_verify(it: discord.Interaction):
     e.add_field(name='⚠️ Nickname Skipped', value=str(nickname_failed_count), inline=True)
     e.set_footer(text=f'Scanned {len(unverified_members)} members total')
     await it.edit_original_response(content=None, embed=e)
-    
 
-
+# ── /signing ──────────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='signing', description='Toggle the signing window open or closed', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.choices(status=[app_commands.Choice(name='Open', value=1), app_commands.Choice(name='Closed', value=0)])
 @app_commands.default_permissions(administrator=True)
@@ -1218,6 +1216,8 @@ async def signing_cmd(it, status: int):
     e.set_footer(text=ft, icon_url=fi)
     await it.response.send_message(embed=e)
 
+# ── /config ───────────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='config', description='Configure bot settings', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def config_cmd(it, signing_open_flag: bool = None, max_players: int = None,
@@ -1243,6 +1243,8 @@ async def config_cmd(it, signing_open_flag: bool = None, max_players: int = None
     e.set_footer(text=ft, icon_url=fi)
     await it.response.send_message(embed=e, ephemeral=True)
 
+# ── /ticket ───────────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='ticket', description='Post the ticket panel in this channel', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def ticket_panel_cmd(it):
@@ -1255,16 +1257,16 @@ async def ticket_panel_cmd(it):
     await it.channel.send(embed=e, view=TicketPanelView())
     await it.response.send_message('Ticket panel posted.', ephemeral=True)
 
+# ── /addtoticket ──────────────────────────────────────────────────────────────
+# Visible to everyone; permission check done internally.
 @bot.tree.command(name='addtoticket', description='Add a member to the current ticket channel', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(member='The member to add to this ticket')
 async def addtoticket_cmd(it: discord.Interaction, member: discord.Member):
-    # Must be used inside a ticket channel
     tk = _r(f'rfa/{it.guild_id}/tickets/{it.channel_id}').get()
     if not tk:
         await it.response.send_message('This command can only be used inside a ticket channel.', ephemeral=True)
         return
 
-    # Permission check: ticket owner OR staff/admin
     can_add = (
         it.user.id == tk['uid']
         or it.user.guild_permissions.manage_channels
@@ -1275,12 +1277,10 @@ async def addtoticket_cmd(it: discord.Interaction, member: discord.Member):
         await it.response.send_message('Only the ticket owner or staff can add members to this ticket.', ephemeral=True)
         return
 
-    # Don't add bots
     if member.bot:
         await it.response.send_message('You cannot add bots to tickets.', ephemeral=True)
         return
 
-    # Check if they already have access
     channel = it.channel
     overwrites = channel.overwrites
     existing = overwrites.get(member)
@@ -1288,7 +1288,6 @@ async def addtoticket_cmd(it: discord.Interaction, member: discord.Member):
         await it.response.send_message(f'{member.mention} already has access to this ticket.', ephemeral=True)
         return
 
-    # Grant view + send access
     try:
         await channel.set_permissions(
             member,
@@ -1309,17 +1308,16 @@ async def addtoticket_cmd(it: discord.Interaction, member: discord.Member):
     e.set_footer(text=ft, icon_url=fi)
     await it.response.send_message(embed=e)
 
-
+# ── /renameticket ─────────────────────────────────────────────────────────────
+# Visible to everyone; permission check done internally.
 @bot.tree.command(name='renameticket', description='Rename the current ticket channel', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(name='New name for the ticket channel (no spaces — use hyphens)')
 async def renameticket_cmd(it: discord.Interaction, name: str):
-    # Must be used inside a ticket channel
     tk = _r(f'rfa/{it.guild_id}/tickets/{it.channel_id}').get()
     if not tk:
         await it.response.send_message('This command can only be used inside a ticket channel.', ephemeral=True)
         return
 
-    # Permission check: ticket owner OR staff/admin
     can_rename = (
         it.user.id == tk['uid']
         or it.user.guild_permissions.manage_channels
@@ -1330,7 +1328,6 @@ async def renameticket_cmd(it: discord.Interaction, name: str):
         await it.response.send_message('Only the ticket owner or staff can rename this ticket.', ephemeral=True)
         return
 
-    # Sanitise: lowercase, replace spaces with hyphens, strip bad chars
     safe_name = name.lower().replace(' ', '-')[:100]
 
     old_name = it.channel.name
@@ -1353,17 +1350,13 @@ async def renameticket_cmd(it: discord.Interaction, name: str):
 
 
 async def roblox_get_server_players(server_id: str) -> list[str]:
-    """Fetch the list of player usernames in a specific Roblox server via Presence API."""
     try:
-        # Thumbnail/presence APIs don't expose per-server player lists publicly.
-        # The Game Server Presence endpoint requires the server token — we skip silently.
         return []
     except Exception:
         return []
 
 
 async def roblox_get_place_name(place_id: str) -> str | None:
-    """Fetch the place display name from the Roblox Games API."""
     try:
         async with aiohttp.ClientSession() as s:
             async with s.get(f'https://games.roblox.com/v1/games/multiget-place-details?placeIds={place_id}') as r:
@@ -1376,18 +1369,20 @@ async def roblox_get_place_name(place_id: str) -> str | None:
         return None
     return None
 
-
-@bot.tree.command(name='ticketstats', description='Show ticket counts and move a ticket to a different category', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
-@app_commands.default_permissions(manage_channels=True)
+# ── /ticketstats ──────────────────────────────────────────────────────────────
+# Visible to everyone; permission check done internally (staff only).
+@bot.tree.command(name='ticketstats', description='Show open/closed ticket counts', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 async def ticketstats_cmd(it: discord.Interaction):
-    """Shows open/closed ticket counts. Staff only."""
+    if not (it.user.guild_permissions.manage_channels or it.user.guild_permissions.administrator or is_staff(it.user)):
+        await it.response.send_message('Only staff can view ticket stats.', ephemeral=True)
+        return
+
     await it.response.defer(ephemeral=True)
     tickets = _r(f'rfa/{it.guild_id}/tickets').get() or {}
 
     open_tickets   = [tid for tid, tk in tickets.items() if tk.get('status') == 'open']
     closed_tickets = [tid for tid, tk in tickets.items() if tk.get('status') == 'closed']
 
-    # Break open tickets down by reason
     by_reason: dict[str, int] = {}
     for tid in open_tickets:
         reason = tickets[tid].get('reason', 'Unknown')
@@ -1402,7 +1397,6 @@ async def ticketstats_cmd(it: discord.Interaction):
         breakdown = '\n'.join(f'`{reason}` — {count}' for reason, count in sorted(by_reason.items()))
         e.add_field(name='Open Tickets by Reason', value=breakdown, inline=False)
 
-    # List active ticket channels
     if open_tickets:
         ch_lines = []
         for tid in open_tickets[:10]:
@@ -1417,17 +1411,16 @@ async def ticketstats_cmd(it: discord.Interaction):
     e.set_footer(text=ft, icon_url=fi)
     await it.followup.send(embed=e, ephemeral=True)
 
-
+# ── /moveticket ───────────────────────────────────────────────────────────────
+# Visible to everyone; permission check done internally (staff only).
 @bot.tree.command(name='moveticket', description='Move the current ticket to a different category', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.describe(category='The category to move this ticket into')
 async def moveticket_cmd(it: discord.Interaction, category: discord.CategoryChannel):
-    # Must be used inside a ticket channel
     tk = _r(f'rfa/{it.guild_id}/tickets/{it.channel_id}').get()
     if not tk:
         await it.response.send_message('This command can only be used inside a ticket channel.', ephemeral=True)
         return
 
-    # Staff / admin only for moving
     can_move = (
         it.user.guild_permissions.manage_channels
         or it.user.guild_permissions.administrator
@@ -1456,14 +1449,14 @@ async def moveticket_cmd(it: discord.Interaction, category: discord.CategoryChan
     e.set_footer(text=ft, icon_url=fi)
     await it.response.send_message(embed=e)
 
-
+# ── /serverstatus ─────────────────────────────────────────────────────────────
+# Public — no changes needed.
 @bot.tree.command(name='serverstatus', description='Check live player count and servers', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 async def serverstatus_cmd(it: discord.Interaction):
     await it.response.defer()
     player_count = await roblox_get_player_count()
     servers = await roblox_get_servers()
 
-    # Try to get the place/game name for a nicer title
     place_name = await roblox_get_place_name(ROBLOX_UNIVERSE) or 'RFA Universe'
 
     e = discord.Embed(title=f'{place_name} — Server Status', color=C['pr'])
@@ -1478,8 +1471,6 @@ async def serverstatus_cmd(it: discord.Interaction):
             ping      = sv.get('ping', '?')
             server_id = sv.get('id', '')
 
-            # Roblox's public API doesn't expose per-server player names without a server token,
-            # so we show the count + ping cleanly.
             line = f'**Server {i}** — `{playing}/{max_p}` players | ping `{ping}ms`'
             if server_id:
                 line += f'\n  └ ID: `{server_id[:16]}…`'
@@ -1491,7 +1482,6 @@ async def serverstatus_cmd(it: discord.Interaction):
             inline=False,
         )
 
-        # Best-effort: show total slots
         total_slots = sum(sv.get('maxPlayers', 0) for sv in servers)
         total_playing = sum(sv.get('playing', 0) for sv in servers)
         if total_slots:
@@ -1501,6 +1491,8 @@ async def serverstatus_cmd(it: discord.Interaction):
     e.set_footer(text=ft, icon_url=fi)
     await it.followup.send(embed=e)
 
+# ── /rban, /runban, /rbaninfo, /rbans ─────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='rban', description='Ban a player from the Roblox game', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def rban_cmd(it, username: str, reason: str, duration_days: int = None):
@@ -1597,6 +1589,8 @@ async def rbans_cmd(it):
 ANNOUNCE_COLORS = [app_commands.Choice(name=n, value=n.lower()) for n in ['White','Red','Green','Blue','Yellow','Orange','Purple','Cyan','Pink']]
 DISCORD_COLOR_MAP = {'white':0xffffff,'red':0xed4245,'green':0x57f287,'blue':0x5865f2,'yellow':0xfee75c,'orange':0xfaa61a,'purple':0x9b59b6,'cyan':0x1abc9c,'pink':0xff69b4}
 
+# ── /announce ─────────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='announce', description='Broadcast a message into the Roblox game', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.choices(color=ANNOUNCE_COLORS)
 @app_commands.default_permissions(administrator=True)
@@ -1615,6 +1609,8 @@ async def announce_cmd(it, message: str, color: str = 'white', topic: str = 'Ann
     e.set_footer(text=ft, icon_url=fi)
     await it.followup.send(embed=e)
 
+# ── /mod, /permmod, /unmod, /modlist, /setpower ───────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='mod', description='Give a player mod in a specific Roblox server', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def mod_cmd(it, server: str, username: str):
@@ -1733,6 +1729,8 @@ async def setpower_cmd(it, username: str, power: int, permanent: bool = True):
     e.set_footer(text=ft, icon_url=fi)
     await it.followup.send(embed=e)
 
+# ── /whois ────────────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='whois', description='Look up a Roblox user and their moderation history', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def whois_cmd(it, username: str):
@@ -1769,6 +1767,8 @@ async def whois_cmd(it, username: str):
     e.set_footer(text=ft, icon_url=fi)
     await it.followup.send(embed=e)
 
+# ── /logs ─────────────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='logs', description='View the moderation audit log', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def logs_cmd(it, action: str = None, limit: int = 20):
@@ -1817,23 +1817,19 @@ class LinksSelect(discord.ui.Select):
         )
 
     async def callback(self, it: discord.Interaction):
-        # Only the person who called /links can interact — URL is sent privately
         await it.response.send_message(self.values[0], ephemeral=True)
 
-
+# ── /links ────────────────────────────────────────────────────────────────────
+# Public — no changes needed.
 @bot.tree.command(
     name='links',
     description='Get a quick link for RFA',
     guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))),
 )
 async def links_cmd(it: discord.Interaction):
-    # Works in both guild channels and DMs.
-    # The dropdown is shown publicly so others know what links exist,
-    # but selecting a link sends the URL only to the person who clicked.
     if it.guild and isinstance(it.user, discord.Member):
         member_role_ids = {r.id for r in it.user.roles}
     else:
-        # In DMs — fetch guild membership to check role-gated links
         guild = bot.get_guild(DISCORD_GUILD_ID)
         member_role_ids = set()
         if guild:
@@ -1848,14 +1844,14 @@ async def links_cmd(it: discord.Interaction):
         await it.response.send_message('No links available here.', ephemeral=True)
         return
 
-    # Send publicly so everyone in the channel can see and learn about the links menu.
-    # The actual URLs are delivered privately when someone selects an option.
     await it.response.send_message(
         f'**RFA Links** — {it.user.mention} opened the links menu.\n'
         '> Select an option below to receive that link privately.',
         view=view,
     )
 
+# ── /addpin ───────────────────────────────────────────────────────────────────
+# Admin-only — kept hidden intentionally.
 @bot.tree.command(name='addpin', description='Upload an image as a pin and grant it to a Roblox player', guild=discord.Object(id=int(os.environ.get('DISCORD_GUILD_ID', 0))))
 @app_commands.default_permissions(administrator=True)
 async def addpin_cmd(it, roblox_username: str, image: discord.Attachment):
